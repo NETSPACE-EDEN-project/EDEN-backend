@@ -1,0 +1,35 @@
+{
+  "name": "eden-backend",
+  "version": "1.0.0",
+  "description": "",
+  "homepage": "https://github.com/NETSPACE-EDEN-project/EDEN-backend#readme",
+  "bugs": {
+    "url": "https://github.com/NETSPACE-EDEN-project/EDEN-backend/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NETSPACE-EDEN-project/EDEN-backend.git"
+  },
+  "license": "ISC",
+  "author": "Alan TSAI",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js",
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "push": "drizzle-kit push"
+  },
+  "overrides": {
+    "esbuild": "^0.25.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
+  }
+}
