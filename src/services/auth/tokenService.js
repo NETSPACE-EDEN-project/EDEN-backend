@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { JWT_CONFIG } from '../../config/jwtConfig.js';
+import { JWT_CONFIG } from '../../config/authConfig.js';
 import { buildTokenPayload, getErrorMessage } from '../../utils/tokenUtils.js'
 
 const generateAccessToken = (user) => {
@@ -75,14 +75,17 @@ const refreshAccessToken = (refreshToken, userInfo) => {
     if (!refreshResult.success) return refreshResult;
 
     const refreshData = refreshResult.data;
-    const accessResult = generateAccessToken({
+
+		const userForToken = {
       id: refreshData.id,
       username: userInfo.username,
       email: userInfo.email,
       role: refreshData.role,
       status: userInfo.status,
       providerType: userInfo.providerType
-    });
+    };
+
+    const accessResult = generateAccessToken(userForToken);
 
 		if (!accessResult.success) return accessResult;
 

@@ -1,4 +1,4 @@
-import { COOKIE_NAMES, cookieConfig, clearCookieConfig } from '../../config/cookie.js';
+import { COOKIE_NAMES, cookieConfig, clearCookieConfig } from '../../config/authConfig.js';
 import { generateTokenPair, verifyAccessToken, verifyRefreshToken, refreshAccessToken } from './tokenService.js';
 import { isTokenExpiringSoon } from '../../utils/tokenUtils.js';
 
