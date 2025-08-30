@@ -1,6 +1,7 @@
 import { COOKIE_NAMES, cookieConfig, clearCookieConfig } from '../../config/authConfig.js';
 import { generateTokenPair, verifyAccessToken, verifyRefreshToken, refreshAccessToken } from './tokenService.js';
 import { isTokenExpiringSoon } from '../../utils/tokenUtils.js';
+import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/errorUtils.js';
 
 const createDisplayInfo = (user) => ({
   id: user.id,
@@ -16,10 +17,12 @@ const setAuthCookies = (res, user, options = {}) => {
 		const tokenResult = generateTokenPair(user);
 		if (!tokenResult.success) {
 			console.error('Token generation failed:', tokenResult.message);
-			return { success: false, error: tokenResult.error, message: tokenResult.message };
+			return tokenResult;
 		}
+		
 		const { accessToken, refreshToken } = tokenResult.data;
 		res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
+		
 		if (options.rememberMe) {
       res.cookie(COOKIE_NAMES.REMEMBER_ME, refreshToken, cookieConfig.remember_me);
     }
@@ -27,10 +30,14 @@ const setAuthCookies = (res, user, options = {}) => {
 		const displayInfo = createDisplayInfo(user);
 		res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
 
-		return { success: true, data: { accessToken, refreshToken: options.rememberMe ? refreshToken : null,displayInfo } };
+		return createSuccessResponse({ 
+			accessToken, 
+			refreshToken: options.rememberMe ? refreshToken : null,
+			displayInfo 
+		});
 	} catch (error) {
 		console.error('Error setting auth cookies:', error);
-		return { success: false, error: 'CookieError', message: 'Failed to set authentication cookies' };
+		return createErrorResponse(error, 'Failed to set authentication cookies', ERROR_TYPES.COOKIE_ERROR);
 	}
 };
 
@@ -40,10 +47,10 @@ const clearAuthCookies = (res) => {
 		res.clearCookie(COOKIE_NAMES.USER_DISPLAY, clearCookieConfig);
 		res.clearCookie(COOKIE_NAMES.REMEMBER_ME, clearCookieConfig);
 
-		return { success: true, message: 'Authentication cookies cleared successfully' };
+		return createSuccessResponse(null, 'Authentication cookies cleared successfully');
 	} catch (error) {
 		console.error('Error clearing auth cookies:', error);
-		return { success: false, error: 'ClearCookieError', message: 'Failed to clear authentication cookies' };
+		return createErrorResponse(error, 'Failed to clear authentication cookies', ERROR_TYPES.CLEAR_COOKIE_ERROR);
 	}
 };
 
@@ -82,39 +89,28 @@ const getFromCookies = (req) => {
 			}
 		}
 
-		return { 
-			success: true, 
-			data: { 
-				accessToken: validAccessToken, 
-				refreshToken: validRefreshToken, 
-				userInfo, 
-				tokenData: { 
-					access: accessTokenData, 
-					refresh: refreshTokenData 
-				}, 
-				hasValidAuth: !!validAccessToken, 
-				hasRememberMe: !!validRefreshToken 
-			} 
-		};
+		return createSuccessResponse({ 
+			accessToken: validAccessToken, 
+			refreshToken: validRefreshToken, 
+			userInfo, 
+			tokenData: { 
+				access: accessTokenData, 
+				refresh: refreshTokenData 
+			}, 
+			hasValidAuth: !!validAccessToken, 
+			hasRememberMe: !!validRefreshToken 
+		});
 	} catch (error) {
 		console.error('Error getting cookies:', error);
-		return { 
-			success: false, 
-			error: 'CookieParseError', 
-			message: 'Failed to parse cookies' 
-		};
-	};
+		return createErrorResponse(error, 'Failed to parse cookies', ERROR_TYPES.COOKIE_PARSE_ERROR);
+	}
 };
 
 const refreshTokenFromCookies = (req, res, userInfo) => {
 	try {
 		const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
 		if (!refreshToken) {
-			return { 
-				success: false, 
-				error: 'NoRefreshToken', 
-				message: 'No refresh token found in cookies' 
-			};
+			return createErrorResponse(null, 'No refresh token found in cookies', ERROR_TYPES.NO_REFRESH_TOKEN);
 		}
 
 		const refreshResult = refreshAccessToken(refreshToken, userInfo);
@@ -129,27 +125,21 @@ const refreshTokenFromCookies = (req, res, userInfo) => {
 		const displayInfo = createDisplayInfo(userInfo);
 		res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
 
-		return {
-			success: true,
-			data: {
-				accessToken,
-				userId,
-				refreshed: true,
-				displayInfo
-			}
-		};
+		return createSuccessResponse({
+			accessToken,
+			userId,
+			refreshed: true,
+			displayInfo
+		});
 
 	} catch (error) {
 		console.error('Error refreshing token from cookies:', error);
 		clearAuthCookies(res);
-		return { 
-			success: false, 
-			error: 'RefreshError', 
-			message: 'Token refresh failed, please login again' 
-		};
+		return createErrorResponse(error, 'Token refresh failed, please login again', ERROR_TYPES.REFRESH_ERROR);
 	}
 };
 
+// shouldRefreshToken 和 autoRefreshToken 保持不變...
 const shouldRefreshToken = (req) => {
 	try {
 		const authToken = req.signedCookies?.[COOKIE_NAMES.AUTH_TOKEN];
@@ -219,6 +209,5 @@ const autoRefreshToken = async (req, res, next) => {
 		next();
 	}
 };
-
 
 export { setAuthCookies, clearAuthCookies, getFromCookies, refreshTokenFromCookies, shouldRefreshToken, autoRefreshToken }

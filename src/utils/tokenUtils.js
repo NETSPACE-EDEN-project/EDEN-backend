@@ -52,22 +52,8 @@ const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
 	}
 };
 
-const getErrorMessage = (error) => {
-  switch (error.name) {
-    case 'TokenExpiredError':
-      return 'Token 已過期，請重新登入';
-    case 'JsonWebTokenError':
-      return 'Token 格式無效';
-    case 'NotBeforeError':
-      return 'Token 尚未生效';
-    default:
-      return 'Token 驗證失敗';
-  }
-};
-
 export {
 	buildTokenPayload,
 	decodeToken,
-	isTokenExpiringSoon,
-	getErrorMessage
+	isTokenExpiringSoon
 }

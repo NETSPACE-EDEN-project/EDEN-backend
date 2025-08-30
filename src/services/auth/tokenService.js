@@ -1,16 +1,17 @@
 import jwt from 'jsonwebtoken';
 import { JWT_CONFIG } from '../../config/authConfig.js';
-import { buildTokenPayload, getErrorMessage } from '../../utils/tokenUtils.js'
+import { buildTokenPayload } from '../../utils/tokenUtils.js';
+import { getJWTErrorMessage, createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/errorUtils.js';
 
 const generateAccessToken = (user) => {
 	try {
 		const payload = buildTokenPayload(user, 'access');
 		const token = jwt.sign(payload, JWT_CONFIG.access.secret, { expiresIn: JWT_CONFIG.access.expiresIn });
-
-		return { success: true, data: token };
+		
+		return createSuccessResponse(token);
 	} catch (error) {
 		console.error('Error generating access token:', error);
-		return { success: false, error: 'GenerateError', message: 'Access Token 簽發失敗，請稍後再試' };
+		return createErrorResponse(error, 'Access Token 簽發失敗，請稍後再試', ERROR_TYPES.GENERATE_ERROR);
 	}
 };
 
@@ -18,11 +19,11 @@ const generateRefreshToken = (user) => {
 	try {
 		const payload = buildTokenPayload(user, 'refresh');
 		const token = jwt.sign(payload, JWT_CONFIG.refresh.secret, { expiresIn: JWT_CONFIG.refresh.expiresIn });
-
-		return { success: true, data: token };
+		
+		return createSuccessResponse(token);
 	} catch (error) {
 		console.error('Error generating refresh token:', error);
-		return { success: false, error: 'GenerateError', message: 'Refresh Token 簽發失敗，請稍後再試' };
+		return createErrorResponse(error, 'Refresh Token 簽發失敗，請稍後再試', ERROR_TYPES.GENERATE_ERROR);
 	}
 };
 
@@ -34,27 +35,24 @@ const generateTokenPair = (user) => {
 		if (!accessResult.success) return accessResult;
 		if (!refreshResult.success) return refreshResult;
 
-		return { 
-			success: true, 
-			data: { 
-				accessToken: accessResult.data, 
-				refreshToken: refreshResult.data 
-			} 
-		};
+		return createSuccessResponse({ 
+			accessToken: accessResult.data, 
+			refreshToken: refreshResult.data 
+		});
 	} catch (error) {
 		console.error('Error generating token pair:', error);
-		return { success: false, error: 'GenerateError', message: 'Token Pair 簽發失敗，請稍後再試' };
+		return createErrorResponse(error, 'Token Pair 簽發失敗，請稍後再試', ERROR_TYPES.GENERATE_ERROR);
 	}
-}
+};
 
 const verifyAccessToken = (token) => {
   try {
     const decoded = jwt.verify(token, JWT_CONFIG.access.secret);
     if (decoded.type !== 'access') throw new Error('Invalid token type');
-    return { success: true, data: decoded };
+    return createSuccessResponse(decoded);
   } catch (error) {
     console.error('Access Token verification failed:', error.message);
-    return { success: false, error: error.name, message: getErrorMessage(error) };
+    return createErrorResponse(error, getJWTErrorMessage(error), error.name);
   }
 };
 
@@ -62,10 +60,10 @@ const verifyRefreshToken = (token) => {
   try {
     const decoded = jwt.verify(token, JWT_CONFIG.refresh.secret);
     if (decoded.type !== 'refresh') throw new Error('Invalid token type');
-    return { success: true, data: decoded };
+    return createSuccessResponse(decoded);
   } catch (error) {
     console.error('Refresh Token verification failed:', error.message);
-    return { success: false, error: error.name, message: getErrorMessage(error) };
+    return createErrorResponse(error, getJWTErrorMessage(error), error.name);
   }
 };
 
@@ -75,8 +73,7 @@ const refreshAccessToken = (refreshToken, userInfo) => {
     if (!refreshResult.success) return refreshResult;
 
     const refreshData = refreshResult.data;
-
-		const userForToken = {
+    const userForToken = {
       id: refreshData.id,
       username: userInfo.username,
       email: userInfo.email,
@@ -86,13 +83,15 @@ const refreshAccessToken = (refreshToken, userInfo) => {
     };
 
     const accessResult = generateAccessToken(userForToken);
+    if (!accessResult.success) return accessResult;
 
-		if (!accessResult.success) return accessResult;
-
-    return { success: true, data: { accessToken: accessResult.data, userId: refreshData.id } };
+    return createSuccessResponse({ 
+      accessToken: accessResult.data, 
+      userId: refreshData.id 
+    });
   } catch (error) {
     console.error('Error refreshing access token:', error);
-    return { success: false, error: 'RefreshError', message: 'Token refresh failed, please login again' };
+    return createErrorResponse(error, 'Token refresh failed, please login again', ERROR_TYPES.REFRESH_ERROR);
   }
 };
 
