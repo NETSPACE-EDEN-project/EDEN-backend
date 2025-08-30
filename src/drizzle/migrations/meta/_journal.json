@@ -8,6 +8,13 @@
       "when": 1756479764232,
       "tag": "0000_ambiguous_preak",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1756566591322,
+      "tag": "0001_sad_kabuki",
+      "breakpoints": true
     }
   ]
 }
