@@ -1,1 +1,3 @@
-console.log("Hello Node.js!");
+import dotenv from 'dotenv';
+
+dotenv.config();
