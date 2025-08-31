@@ -44,27 +44,9 @@ const resetPasswordSchema = z.object({
     .max(128, '密碼不可超過 128 個字元')
 });
 
-const validateRequest = (schema) => {
-  return (req, res, next) => {
-    try {
-      const result = schema.parse(req.body);
-      req.validatedData = result;
-      next();
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: 'VALIDATION_ERROR',
-        message: error.issues.map(issue => issue.message).join(', '),
-        details: error.issues
-      });
-    }
-  };
-};
-
 export {
   loginSchema,
   registerSchema,
   forgotPasswordSchema,
-  resetPasswordSchema,
-  validateRequest
+  resetPasswordSchema
 };
