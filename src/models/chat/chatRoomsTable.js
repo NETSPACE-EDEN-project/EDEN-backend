@@ -1,5 +1,5 @@
 import { pgTable, serial, varchar, text, integer, timestamp } from 'drizzle-orm/pg-core';
-import { statusEnum, roomTypeEnum } from '../schema.js';
+import { usersTable, statusEnum, roomTypeEnum } from '../schema.js';
 
 const chatRoomsTable = pgTable('chat_rooms', {
 	id: serial('id').primaryKey(),

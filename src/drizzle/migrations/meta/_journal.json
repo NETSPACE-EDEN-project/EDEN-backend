@@ -15,6 +15,20 @@
       "when": 1756566591322,
       "tag": "0001_sad_kabuki",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1756714599320,
+      "tag": "0002_busy_the_hunter",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1756714652109,
+      "tag": "0003_sharp_hellcat",
+      "breakpoints": true
     }
   ]
 }
