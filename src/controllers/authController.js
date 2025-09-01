@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { usersTable, emailTable, lineTable } from '../models/schema.js';
-import { loginUser, logoutUser, verifyAuth } from '../services/authService.js';
+import { loginUser, logoutUser, verifyAuth } from '../services/auth/authService.js';
 import { createErrorResponse, createSuccessResponse } from '../utils/errorUtils.js';
 
 const register = async (req, res) => {

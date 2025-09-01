@@ -1,3 +1,7 @@
+import dotenv from 'dotenv';
+
+dotenv.config();
+
 const corsOptions = {
 	origin: function (origin, callback) {
 		if (process.env.NODE_ENV === 'production' && !origin) {
