@@ -79,7 +79,7 @@ const login = async (req, res) => {
       password: emailTable.password
     })
     .from(usersTable)
-    .innerJoin(eq(usersTable.id, emailTable.userId))
+    .innerJoin(emailTable, eq(usersTable.id, emailTable.userId))
     .where(eq(emailTable.email, email))
     .limit(1);
 

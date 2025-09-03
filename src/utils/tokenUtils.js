@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from './errorUtils.js';
 
 const buildTokenPayload = (user, type) => {
 	if (type === 'access') {
@@ -23,31 +24,49 @@ const buildTokenPayload = (user, type) => {
 const decodeToken = (token) => {
 	try {
 		if (!token) {
-			return { success: false, error: 'InvalidInput', message: 'Token is required' };
+			return createErrorResponse(
+				new Error('Token is required'), 
+				'Token is required', 
+				ERROR_TYPES.INVALID_INPUT
+			);
 		}
 
 		const decoded = jwt.decode(token);
 		if (!decoded) {
-			return { success: false, error: 'DecodeError', message: 'Unable to decode token' };
+			return createErrorResponse(
+				new Error('Unable to decode token'), 
+				'Unable to decode token', 
+				ERROR_TYPES.DECODE_ERROR
+			);
 		}
 
-		return { success: true, data: decoded };
+		return createSuccessResponse(decoded);
 	} catch (error) {
-		console.error('Error decoding token:', error);
-		return { success: false, error: 'DecodeError', message: 'Token decode failed' };
+		return createErrorResponse(
+			error, 
+			'Token decode failed', 
+			ERROR_TYPES.DECODE_ERROR
+		);
 	}
 };
 
 const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
 	try {
+		if (!token) {
+			return true;
+		}
+
 		const decoded = jwt.decode(token);
-		if (!decoded || !decoded.exp) return true;
+		if (!decoded || !decoded.exp) {
+			return true;
+		}
 
 		const currentTime = Math.floor(Date.now() / 1000);
 		const threshold = thresholdMinutes * 60;
 
 		return decoded.exp - currentTime < threshold;
 	} catch (error) {
+		console.error('Error checking token expiration:', error);
 		return true;
 	}
 };

@@ -1,10 +1,10 @@
 import { Server } from 'socket.io';
+import { eq, and, desc } from 'drizzle-orm';
 import { corsOptions } from '../../config/cors.js';
 import { createErrorResponse, createSuccessResponse } from '../../utils/errorUtils.js';
 import { verifyAccessToken } from '../auth/tokenService.js';
 import { db } from '../../config/db.js';
-import { messagesTable, chatRoomsTable, chatMembersTable } from '../../models/chat/chatSchema.js';
-import { eq, and, desc } from 'drizzle-orm';
+import { messagesTable, chatRoomsTable, chatMembersTable } from '../../models/schema.js';
 
 const connectedUsers = new Map();
 const userRooms = new Map();
