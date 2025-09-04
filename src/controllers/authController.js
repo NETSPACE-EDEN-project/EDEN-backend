@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { usersTable, emailTable, lineTable } from '../models/schema.js';
 import { loginUser, logoutUser, verifyAuth } from '../services/auth/authService.js';
-import { createErrorResponse, createSuccessResponse } from '../utils/errorUtils.js';
+import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/errorUtils.js';
 
 const register = async (req, res) => {
 	try {
@@ -17,8 +17,7 @@ const register = async (req, res) => {
     if (existingEmailUser) {
       return res.status(409).json(createErrorResponse(
         null,
-        '此信箱已被註冊',
-        'EMAIL_ALREADY_EXISTS'
+        ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_EXISTS
       ));
     }
 
@@ -50,14 +49,12 @@ const register = async (req, res) => {
         role: result.user.role,
         providerType: result.user.providerType
       },
-      message: '註冊成功！請檢查您的信箱進行驗證'
-    }, '註冊成功'));
+    }, '註冊成功！請檢查您的信箱進行驗證'));
 	} catch (error) {
     console.error('Register error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      '註冊失敗，請稍後再試',
-      'REGISTRATION_FAILED'
+      ERROR_TYPES.AUTH.USER.REGISTRATION_FAILED
     ));
   }
 };
@@ -86,8 +83,7 @@ const login = async (req, res) => {
     if (!userWithEmail) {
       return res.status(401).json(createErrorResponse(
         null,
-        '帳號或密碼錯誤',
-        'INVALID_CREDENTIALS'
+        ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
       ));
     }
 
@@ -95,8 +91,7 @@ const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json(createErrorResponse(
         null,
-        '帳號或密碼錯誤',
-        'INVALID_CREDENTIALS'
+        ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
       ));
     }
 
@@ -105,17 +100,12 @@ const login = async (req, res) => {
       redirectUrl: '/dashboard' 
     })
 
-    if (!loginResult.success) {
-      return res.status(400).json(loginResult);
-    }
-
-    return res.json(loginResult);
+    return res.status(loginResult.success ? 200 : 400).json(loginResult);
   } catch (error) {
     console.error('Login error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      '登入失敗，請稍後再試',
-      'LOGIN_FAILED'
+      ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
     ));
   }
 }
@@ -128,8 +118,7 @@ const logout = async (req, res) => {
     console.error('Logout error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      '登出失敗',
-      'LOGOUT_FAILED'
+      ERROR_TYPES.AUTH.SESSION.LOGOUT_FAILED
     ));
   }
 };
@@ -144,8 +133,7 @@ const getCurrentUser = async (req, res) => {
     console.error('Get current user error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      '獲取用戶資訊失敗',
-      'GET_USER_FAILED'
+      ERROR_TYPES.AUTH.SESSION.GET_USER_FAILED
     ));
   }
 };
@@ -167,8 +155,7 @@ const refreshToken = async (req, res) => {
     console.error('Refresh token error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      'Token 刷新失敗',
-      'REFRESH_TOKEN_FAILED'
+      ERROR_TYPES.AUTH.TOKEN.REFRESH_ERROR
     ));
   }
 };

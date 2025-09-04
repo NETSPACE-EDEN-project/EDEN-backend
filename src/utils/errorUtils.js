@@ -1,9 +1,19 @@
-const createErrorResponse = (error, message, errorType = 'UnknownError') => {
-  console.error(error);
+const createErrorResponse = (error, errorType = null, extra = null) => {
+  let code = 'UnknownError';
+  let message = '發生錯誤';
+
+  if (errorType && errorType.code && errorType.message) {
+    code = errorType.code;
+    message = errorType.message;
+  }
+
+  console.error(error || message);
+
   return {
     success: false,
-    error: errorType,
-    message
+    error: code,
+    message,
+    ...(extra && { extra })
   };
 };
 
@@ -13,50 +23,81 @@ const createSuccessResponse = (data, message = null) => ({
   ...(message && { message })
 });
 
-const getJWTErrorMessage = (error) => {
-  switch (error.name) {
-    case 'TokenExpiredError':
-      return 'Token 已過期，請重新登入';
-    case 'JsonWebTokenError':
-      return 'Token 格式無效';
-    case 'NotBeforeError':
-      return 'Token 尚未生效';
-    default:
-      return 'Token 驗證失敗';
-  }
-};
-
-
 const ERROR_TYPES = {
-  // 原有的認證錯誤
-  COOKIE_ERROR: 'CookieError',
-  CLEAR_COOKIE_ERROR: 'ClearCookieError',
-  COOKIE_PARSE_ERROR: 'CookieParseError',
-  NO_REFRESH_TOKEN: 'NoRefreshToken',
-  REFRESH_ERROR: 'RefreshError',
-  GENERATE_ERROR: 'GenerateError',
-  INVALID_INPUT: 'InvalidInput',
-  DECODE_ERROR: 'DecodeError',
-  
-  // 聊天室相關錯誤
-  CREATE_ROOM_FAILED: 'CreateRoomFailed',
-  GET_ROOMS_FAILED: 'GetRoomsFailed',
-  GET_MESSAGES_FAILED: 'GetMessagesFailed',
-  JOIN_ROOM_FAILED: 'JoinRoomFailed',
-  INVALID_ROOM_ID: 'InvalidRoomId',
-  NOT_ROOM_MEMBER: 'NotRoomMember',
-  ROOM_NOT_FOUND: 'RoomNotFound',
-  ALREADY_MEMBER: 'AlreadyMember',
-  INVALID_MEMBER_IDS: 'InvalidMemberIds',
-  INVALID_PAGINATION: 'InvalidPagination',
-  
-  // 貼文相關錯誤
-  CREATE_POST_FAILED: 'CreatePostFailed',
-  GET_FEED_FAILED: 'GetFeedFailed',
-  TOGGLE_LIKE_FAILED: 'ToggleLikeFailed',
-  INVALID_POST_ID: 'InvalidPostId',
-  POST_NOT_FOUND: 'PostNotFound',
-  EMPTY_CONTENT: 'EmptyContent'
+  AUTH: {
+    USER: {
+      EMAIL_ALREADY_EXISTS: { code: 'EmailAlreadyExists', message: '此信箱已被註冊' },
+      REGISTRATION_FAILED: { code: 'RegistrationFailed', message: '註冊失敗，請稍後再試' },
+      INVALID_USER_INFO: { code: 'InvalidUserInfo', message: '缺少必要的用戶資訊' },
+      MISSING_EMAIL_INFO: { code: 'MissingEmailInfo', message: 'Email 登入用戶缺少 email 資訊' },
+      INVALID_EMAIL_FORMAT: { code: 'InvalidEmailFormat', message: '無效的 email 格式' },
+      ACCOUNT_STATUS_INVALID: { code: 'AccountStatusInvalid', message: '帳號狀態異常，請聯繫管理員' },
+      EMAIL_NOT_VERIFIED: { code: 'EmailNotVerified', message: '請先驗證您的 email' },
+      AUTHENTICATION_REQUIRED: { code: 'AuthenticationRequired', message: '請先登入' },
+      INSUFFICIENT_PERMISSIONS: { code: 'InsufficientPermissions', message: '權限不足' }
+    },
+    SESSION: {
+      INVALID_CREDENTIALS: { code: 'InvalidCredentials', message: '帳號或密碼錯誤' },
+      LOGIN_FAILED: { code: 'LoginFailed', message: '登入失敗，請稍後再試' },
+      LOGOUT_FAILED: { code: 'LogoutFailed', message: '登出失敗' },
+      GET_USER_FAILED: { code: 'GetUserFailed', message: '獲取用戶資訊失敗' }
+    },
+    TOKEN: {
+      AUTH_READ_FAILED: { code: 'AuthReadFailed', message: '無法讀取認證資訊' },
+      AUTH_EXPIRED: { code: 'AuthExpired', message: '認證已失效，請重新登入' },
+      AUTH_VERIFICATION_FAILED: { code: 'AuthVerificationFailed', message: '認證驗證失敗' },
+      NO_REFRESH_TOKEN: { code: 'NoRefreshToken', message: '缺少刷新 Token' },
+      REFRESH_ERROR: { code: 'RefreshError', message: '刷新 Token 失敗' },
+      GENERATE_ERROR: { code: 'GenerateError', message: '生成 Token 失敗' },
+      DECODE_ERROR: { code: 'DecodeError', message: 'Token 解碼失敗' },
+      INVALID_INPUT: { code: 'InvalidInput', message: '輸入資料無效' },
+      VALIDATION_ERROR: { code: 'ValidationError', message: '請求資料驗證失敗' }
+    },
+    COOKIE: {
+      COOKIE_ERROR: { code: 'CookieError', message: 'Cookie 錯誤' },
+      CLEAR_COOKIE_ERROR: { code: 'ClearCookieError', message: '清除 Cookie 失敗' },
+      COOKIE_PARSE_ERROR: { code: 'CookieParseError', message: '解析 Cookie 失敗' }
+    },
+    PROVIDER: {
+      PROVIDER_LOGIN_FAILED: { code: 'ProviderLoginFailed', message: '第三方登入失敗' }
+    }
+  },
+
+  CHAT: {
+    ROOM: {
+      CREATE_ROOM_FAILED: { code: 'CreateRoomFailed', message: '聊天室建立失敗' },
+      ROOM_NOT_FOUND: { code: 'RoomNotFound', message: '聊天室不存在' },
+      JOIN_ROOM_FAILED: { code: 'JoinRoomFailed', message: '加入聊天室失敗' },
+      ALREADY_MEMBER: { code: 'AlreadyMember', message: '已經是聊天室成員' },
+      INVALID_ROOM_ID: { code: 'InvalidRoomId', message: '無效的聊天室 ID' }
+    },
+    MEMBER: {
+      NOT_ROOM_MEMBER: { code: 'NotRoomMember', message: '非聊天室成員' },
+      INVALID_MEMBER_IDS: { code: 'InvalidMemberIds', message: '無效的成員 ID' }
+    },
+    MESSAGE: {
+      GET_MESSAGES_FAILED: { code: 'GetMessagesFailed', message: '取得訊息失敗' },
+      INVALID_PAGINATION: { code: 'InvalidPagination', message: '無效的分頁資訊' }
+    },
+    LIST: {
+      GET_ROOMS_FAILED: { code: 'GetRoomsFailed', message: '取得聊天室列表失敗' }
+    }
+  },
+
+  POST: {
+    POST: {
+      CREATE_POST_FAILED: { code: 'CreatePostFailed', message: '貼文建立失敗' },
+      POST_NOT_FOUND: { code: 'PostNotFound', message: '貼文不存在' },
+      INVALID_POST_ID: { code: 'InvalidPostId', message: '無效的貼文 ID' },
+      EMPTY_CONTENT: { code: 'EmptyContent', message: '貼文內容不能為空' }
+    },
+    FEED: {
+      GET_FEED_FAILED: { code: 'GetFeedFailed', message: '取得貼文列表失敗' }
+    },
+    LIKE: {
+      TOGGLE_LIKE_FAILED: { code: 'ToggleLikeFailed', message: '更新按讚狀態失敗' }
+    }
+  }
 };
 
 export { createErrorResponse, createSuccessResponse, getJWTErrorMessage, ERROR_TYPES }

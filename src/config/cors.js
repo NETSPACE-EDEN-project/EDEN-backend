@@ -1,36 +1,26 @@
 import dotenv from 'dotenv';
-import { createErrorResponse, ERROR_TYPES } from '../utils/errorUtils';
 
 dotenv.config();
 
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5173',
+  ...(process.env.ALLOWED_ORIGINS?.split(',') || [])
+];
+
 const corsOptions = {
-  origin: function (origin, callback) {
+  origin: (origin, callback) => {
     if (process.env.NODE_ENV === 'production' && !origin) {
-      const err = createErrorResponse(
-        null,
-        'CORS policy: origin is required in production',
-        ERROR_TYPES.INVALID_INPUT
-      );
-      return callback(err, false);
+      return callback(new Error('CORS policy: origin is required in production'), false);
     }
 
-    const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',') || [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'http://127.0.0.1:3000',
-      'http://127.0.0.1:5173'
-    ];
-
-    if (allowedOrigins.includes(origin) || !origin) {
+    if (!origin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     } else {
       console.warn(`CORS rejected: ${origin}`);
-      const err = createErrorResponse(
-        null,
-        `CORS policy violation: ${origin} is not allowed`,
-        ERROR_TYPES.INVALID_INPUT
-      );
-      return callback(err, false);
+      return callback(new Error(`CORS policy violation: ${origin} is not allowed`), false);
     }
   },
 

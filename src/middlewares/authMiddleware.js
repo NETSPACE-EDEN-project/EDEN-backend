@@ -1,15 +1,15 @@
 import { verifyAuth } from '../services/auth/authService.js';
+import { createErrorResponse, ERROR_TYPES } from '../utils/errorUtils.js';
 
 const requireAuth = async (req, res, next) => {
   try {
     const authResult = await verifyAuth(req, res);
-    
+
     if (!authResult.success) {
-      return res.status(401).json({
-        success: false,
-        error: 'AUTHENTICATION_REQUIRED',
-        message: '請先登入'
-      });
+      return res.status(401).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.AUTHENTICATION_REQUIRED
+      ));
     }
 
     req.user = authResult.data.user;
@@ -22,11 +22,10 @@ const requireAuth = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('RequireAuth middleware error:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'AUTH_MIDDLEWARE_ERROR',
-      message: '認證檢查失敗'
-    });
+    return res.status(500).json(createErrorResponse(
+      error,
+      ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED
+    ));
   }
 };
 
@@ -60,29 +59,26 @@ const optionalAuth = async (req, res, next) => {
 
 const requireRole = (requiredRole) => {
   return (req, res, next) => {
-
     if (!req.user) {
-      return res.status(401).json({
-        success: false,
-        error: 'AUTHENTICATION_REQUIRED',
-        message: '請先登入'
-      });
+      return res.status(401).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.AUTHENTICATION_REQUIRED
+      ));
     }
 
     const roleHierarchy = {
-      'user': 1,
-      'admin': 2
+      user: 1,
+      admin: 2
     };
 
     const userLevel = roleHierarchy[req.user.role] || 0;
     const requiredLevel = roleHierarchy[requiredRole] || 0;
 
     if (userLevel < requiredLevel) {
-      return res.status(403).json({
-        success: false,
-        error: 'INSUFFICIENT_PERMISSIONS',
-        message: '權限不足'
-      });
+      return res.status(403).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS
+      ));
     }
 
     next();
@@ -96,12 +92,11 @@ const validateRequest = (schema) => {
       req.validatedData = result;
       next();
     } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: 'VALIDATION_ERROR',
-        message: error.issues.map(issue => issue.message).join(', '),
-        details: error.issues
-      });
+      return res.status(400).json(createErrorResponse(
+        error,
+        ERROR_TYPES.AUTH.TOKEN.VALIDATION_ERROR,
+        { details: error.issues.map(issue => issue.message) }
+      ));
     }
   };
 };
