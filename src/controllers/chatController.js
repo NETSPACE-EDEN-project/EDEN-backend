@@ -59,7 +59,7 @@ const startPrivateChat = async (req, res) => {
     const [newRoom] = await db
       .insert(chatRoomsTable)
       .values({
-        roomName: `私聊`,
+        roomName: `與${targetUser.username}的聊天室`,
         roomType: 'private',
         createdBy: userId
       })
@@ -75,7 +75,7 @@ const startPrivateChat = async (req, res) => {
 
     res.status(201).json(createSuccessResponse({
       roomId: newRoom.id,
-      roomName: targetUser.username
+      roomName: `與${targetUser.username}的聊天室`
     }, '私人聊天室創建成功'));
 
   } catch (error) {
@@ -230,8 +230,7 @@ const searchUsers = async (req, res) => {
     const users = await db
       .select({
         id: usersTable.id,
-        username: usersTable.username,
-        email: usersTable.email
+        username: usersTable.username
       })
       .from(usersTable)
       .where(and(

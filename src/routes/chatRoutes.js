@@ -1,7 +1,7 @@
 import express from 'express';
 import { requireAuth } from '../middlewares/authMiddleware.js';
 import { validateRequest } from '../middlewares/validateRequestMiddleware.js';
-import { createGroupChatSchema, startPrivateChatSchema } from '../utils/chatValidation.js';
+import { createGroupChatSchema, startPrivateChatSchema } from '../utils/chatTableValidation.js';
 import { getChatList, startPrivateChat, createGroupChat, getMessages, searchUsers } from '../controllers/chatController.js';
 
 const router = express.Router();
@@ -12,14 +12,14 @@ router.get('/chats', requireAuth, getChatList);
 // 搜尋用戶 (query 參數驗證在 controller 內處理)
 router.get('/search', requireAuth, searchUsers);
 
-// 開始私人聊天
+// 創建私人聊天室
 router.post('/private', 
   requireAuth, 
   validateRequest(startPrivateChatSchema), 
   startPrivateChat
 );
 
-// 創建群組聊天
+// 創建群組聊天室
 router.post('/group', 
   requireAuth, 
   validateRequest(createGroupChatSchema), 
