@@ -1,7 +1,8 @@
 import express from 'express';
-import { requireAuth, optionalAuth, requireRole, validateRequest } from '../middlewares/authMiddleware.js';
+import { requireAuth, optionalAuth, requireRole } from '../middlewares/authMiddleware.js';
+import { validateRequest } from '../middlewares/validateRequestMiddleware.js';
 import { loginSchema, registerSchema } from '../utils/authTableValidation.js';
-import { register, login, logout, getCurrentUserHandler, refreshToken, loginWithProvider, verifyAuthStatus } from '../controllers/authController.js'; 
+import { register, login, logout, getCurrentUserHandler, refreshToken, loginWithProvider, verifyAuthStatus } from '../controllers/authController.js';
 
 const router = express.Router();
 

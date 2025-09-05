@@ -161,22 +161,6 @@ const requireRole = (requiredRole, options = {}) => {
   };
 };
 
-const validateRequest = (schema) => {
-  return (req, res, next) => {
-    try {
-      const result = schema.parse(req.body);
-      req.validatedData = result;
-      next();
-    } catch (error) {
-      return res.status(400).json(createErrorResponse(
-        error,
-        ERROR_TYPES.AUTH.TOKEN.VALIDATION_ERROR,
-        { details: error.issues ? error.issues.map(issue => issue.message) : [error.message] }
-      ));
-    }
-  };
-};
-
 const requireOwnershipOrAdmin = (userIdParam = 'userId') => {
   return (req, res, next) => {
     if (!req.user) {
@@ -214,4 +198,4 @@ const requireOwnershipOrAdmin = (userIdParam = 'userId') => {
   };
 };
 
-export { requireAuth, optionalAuth, requireRole, validateRequest, requireOwnershipOrAdmin };
+export { requireAuth, optionalAuth, requireRole, requireOwnershipOrAdmin };
