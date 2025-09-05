@@ -219,4 +219,4 @@ const getCurrentUserFromCookiesService = (cookieData) => {
   }
 };
 
-export { validateUserInfo, loginUserService, refreshTokenService, verifyAuthService, loginWithProviderService, getCurrentUserFromCookiesService };
+export { validateUserInfo, loginUserService, logoutUserService, refreshTokenService, verifyAuthService, loginWithProviderService, getCurrentUserFromCookiesService };

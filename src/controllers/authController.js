@@ -10,7 +10,7 @@ import {
 } from '../services/auth/authService.js';
 import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
-import { COOKIE_NAMES } from '../../config/authConfig.js';
+import { COOKIE_NAMES } from '../config/authConfig.js';
 
 const register = async (req, res) => {
   try {
@@ -43,7 +43,7 @@ const register = async (req, res) => {
         userId: newUser.id,
         email,
         password: hashedPassword,
-        verificationToken: null
+        emailVerificationToken: null
       }).returning();
 
       return { user: newUser, emailUser };
@@ -73,6 +73,8 @@ const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.validatedData;
 
+    console.log('Starting login process for email:', email);
+
     const [userWithEmail] = await db.select({
       id: usersTable.id,
       username: usersTable.username,
@@ -82,9 +84,10 @@ const login = async (req, res) => {
       role: usersTable.role,
       providerType: usersTable.providerType,
       status: usersTable.status,
+
       email: emailTable.email,
       password: emailTable.password,
-      isVerifiedEmail: emailTable.isVerified
+      isVerifiedEmail: emailTable.isVerifiedEmail
     })
     .from(usersTable)
     .innerJoin(emailTable, eq(usersTable.id, emailTable.userId))
@@ -92,6 +95,7 @@ const login = async (req, res) => {
     .limit(1);
 
     if (!userWithEmail) {
+      console.log('User not found for email:', email);
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
@@ -100,6 +104,7 @@ const login = async (req, res) => {
 
     const isPasswordValid = await bcrypt.compare(password, userWithEmail.password);
     if (!isPasswordValid) {
+      console.log('Invalid password for email:', email);
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
@@ -108,12 +113,19 @@ const login = async (req, res) => {
 
     const { password: _, ...userForLogin } = userWithEmail;
 
+    console.log('User data for login:', { 
+      id: userForLogin.id, 
+      email: userForLogin.email,
+      isVerifiedEmail: userForLogin.isVerifiedEmail 
+    });
+
     const result = await loginUserService(userForLogin, { 
       rememberMe,
       redirectUrl: '/dashboard' 
     });
 
     if (!result.success) {
+      console.log('Login service failed:', result.message);
       return res.status(400).json(result);
     }
 
@@ -122,12 +134,14 @@ const login = async (req, res) => {
     });
     
     if (!cookieResult.success) {
+      console.log('Cookie setting failed:', cookieResult.message);
       return res.status(500).json(createErrorResponse(
         new Error('Failed to set authentication cookies'),
         ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
       ));
     }
 
+    console.log('Login successful for user:', userForLogin.id);
     return res.status(200).json(createSuccessResponse({
       user: result.data.user,
       redirectUrl: result.data.redirectUrl

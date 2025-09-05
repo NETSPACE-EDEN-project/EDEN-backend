@@ -15,7 +15,7 @@ app.use(express.json());
 app.use(cors(corsOptions));
 app.use(cookieParser(process.env.COOKIE_SECRET));
 
-app.use('/auth', authRoutes);
+app.use('/api/auth', authRoutes);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Social Chat API is running!' });

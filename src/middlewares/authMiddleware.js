@@ -1,6 +1,6 @@
 import { verifyAuthService } from '../services/auth/authService.js';
 import { shouldRefreshToken } from '../services/auth/tokenService.js';
-import { COOKIE_NAMES } from '../../config/authConfig.js';
+import { COOKIE_NAMES } from '../config/authConfig.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
