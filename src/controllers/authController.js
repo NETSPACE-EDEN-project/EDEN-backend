@@ -2,9 +2,15 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { usersTable, emailTable } from '../models/schema.js';
-import { loginUser, logoutUser, verifyAuth, refreshTokenFromCookies  } from '../services/auth/authService.js';
-import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/responseUtils.js';
-import { getFromCookies } from '../services/auth/cookieService.js';
+import { 
+  loginUserService, 
+  logoutUserService, 
+  refreshTokenService,
+  loginWithProviderService
+} from '../services/auth/authService.js';
+import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
+import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
+import { COOKIE_NAMES } from '../../config/authConfig.js';
 
 const register = async (req, res) => {
   try {
@@ -102,18 +108,29 @@ const login = async (req, res) => {
 
     const { password: _, ...userForLogin } = userWithEmail;
 
-    const loginResult = await loginUser(res, userForLogin, { 
+    const result = await loginUserService(userForLogin, { 
       rememberMe,
       redirectUrl: '/dashboard' 
     });
 
-    if (!loginResult.success) {
-      return res.status(400).json(loginResult);
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+      rememberMe 
+    });
+    
+    if (!cookieResult.success) {
+      return res.status(500).json(createErrorResponse(
+        new Error('Failed to set authentication cookies'),
+        ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
+      ));
     }
 
     return res.status(200).json(createSuccessResponse({
-      user: loginResult.data.user,
-      redirectUrl: loginResult.data.redirectUrl
+      user: result.data.user,
+      redirectUrl: result.data.redirectUrl
     }, '登入成功'));
 
   } catch (error) {
@@ -127,13 +144,68 @@ const login = async (req, res) => {
 
 const logout = async (req, res) => {
   try {
-    const logoutResult = await logoutUser(res);
+    const clearResult = clearAuthCookies(res);
+    
+    if (!clearResult.success) {
+      console.warn('Failed to clear cookies, but proceeding with logout:', clearResult.message);
+    }
+
+    const logoutResult = logoutUserService();
+    
     return res.status(200).json(logoutResult);
   } catch (error) {
     console.error('Logout error:', error);
+    clearAuthCookies(res);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.SESSION.LOGOUT_FAILED
+    ));
+  }
+};
+
+const refreshToken = async (req, res) => {
+  try {
+    const cookieData = getFromCookies(req);
+    if (!cookieData.success || !cookieData.data?.hasRememberMe || !cookieData.data.userInfo) {
+      return res.status(401).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN
+      ));
+    }
+
+    const refreshTokenValue = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
+    if (!refreshTokenValue) {
+      return res.status(401).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN
+      ));
+    }
+
+    const result = refreshTokenService(refreshTokenValue, cookieData.data.userInfo);
+    if (!result.success) {
+      clearAuthCookies(res);
+      return res.status(401).json(result);
+    }
+
+    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+      rememberMe: true 
+    });
+    
+    if (!cookieResult.success) {
+      console.warn('Failed to update cookies after token refresh:', cookieResult.message);
+    }
+
+    return res.status(200).json(createSuccessResponse({
+      user: result.data.user,
+      refreshed: true
+    }, 'Token 刷新成功'));
+
+  } catch (error) {
+    console.error('Manual refresh token error:', error);
+    clearAuthCookies(res);
+    return res.status(500).json(createErrorResponse(
+      error,
+      ERROR_TYPES.AUTH.TOKEN.REFRESH_ERROR
     ));
   }
 };
@@ -161,39 +233,65 @@ const getCurrentUserHandler = async (req, res) => {
   }
 };
 
-const refreshToken = async (req, res) => {
+const loginWithProvider = async (req, res) => {
   try {
-    const cookieData = getFromCookies(req);
-    if (!cookieData.success || !cookieData.data.hasRememberMe || !cookieData.data.userInfo) {
-      return res.status(401).json(createErrorResponse(
-        null,
-        ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN
+    const { user, provider, rememberMe, redirectUrl } = req.validatedData;
+
+    if (!provider || !user) {
+      return res.status(400).json(createErrorResponse(
+        new Error('Provider and user data are required'),
+        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
       ));
     }
 
-    const refreshResult = refreshTokenFromCookies(req, res, cookieData.data.userInfo);
-    if (!refreshResult.success) {
-      return res.status(401).json(refreshResult);
+    const result = await loginWithProviderService(user, provider, {
+      rememberMe,
+      redirectUrl: redirectUrl || '/dashboard'
+    });
+
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+
+    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+      rememberMe 
+    });
+    
+    if (!cookieResult.success) {
+      return res.status(500).json(createErrorResponse(
+        new Error('Failed to set authentication cookies'),
+        ERROR_TYPES.AUTH.PROVIDER.PROVIDER_LOGIN_FAILED
+      ));
     }
 
     return res.status(200).json(createSuccessResponse({
-      user: refreshResult.data.user,
-      refreshed: true
-    }, 'Token 刷新成功'));
+      user: result.data.user,
+      redirectUrl: result.data.redirectUrl
+    }, `${provider} 登入成功`));
 
   } catch (error) {
-    console.error('Manual refresh token error:', error);
+    console.error('Login with provider error:', error);
     return res.status(500).json(createErrorResponse(
       error,
-      ERROR_TYPES.AUTH.TOKEN.REFRESH_ERROR
+      ERROR_TYPES.AUTH.PROVIDER.PROVIDER_LOGIN_FAILED
     ));
   }
 };
 
-export { 
-  register, 
-  login, 
-  logout, 
-  getCurrentUserHandler, 
-  refreshToken
+const verifyAuthStatus = async (req, res) => {
+  try {
+    return res.status(200).json(createSuccessResponse({
+      isAuthenticated: req.isAuthenticated || false,
+      user: req.user || null,
+      userInfo: req.userInfo || null
+    }, '認證狀態檢查完成'));
+  } catch (error) {
+    console.error('Verify auth status error:', error);
+    return res.status(500).json(createErrorResponse(
+      error,
+      ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED
+    ));
+  }
 };
+
+export { register, login, logout, refreshToken, getCurrentUserHandler, loginWithProvider, verifyAuthStatus };

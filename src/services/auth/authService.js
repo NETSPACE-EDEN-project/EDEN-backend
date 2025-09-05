@@ -1,8 +1,6 @@
-import { setAuthCookies, clearAuthCookies, getFromCookies } from './cookieService.js';
-import { shouldRefreshToken, refreshAccessToken } from './tokenService.js';
-import { COOKIE_NAMES, cookieConfig } from '../../config/authConfig.js';
+import { refreshAccessToken } from './tokenService.js';
 import { createDisplayInfo } from '../../utils/tokenUtils.js';
-import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
+import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
 
 const validateUserInfo = (user) => {
   try {
@@ -15,7 +13,6 @@ const validateUserInfo = (user) => {
     }
 
     const requiredFields = ['id', 'username', 'providerType', 'status'];
-
     for (const field of requiredFields) {
       if (!user[field]) {
         return createErrorResponse(
@@ -47,7 +44,7 @@ const validateUserInfo = (user) => {
   }
 };
 
-const loginUser = async (res, user, options = {}) => {
+const loginUserService = async (user, options = {}) => {
   try {
     const validation = validateUserInfo(user);
     if (!validation.success) {
@@ -71,14 +68,6 @@ const loginUser = async (res, user, options = {}) => {
       );
     }
 
-    const cookieResult = setAuthCookies(res, user, { 
-      rememberMe: options.rememberMe || false 
-    });
-    
-    if (!cookieResult.success) {
-      return cookieResult;
-    }
-
     return createSuccessResponse({
       user: {
         id: user.id,
@@ -87,11 +76,12 @@ const loginUser = async (res, user, options = {}) => {
         role: user.role || 'user',
         avatarUrl: user.avatarUrl || null
       },
+      fullUserData: user,
       redirectUrl: options.redirectUrl || '/dashboard'
     }, '登入成功');
 
   } catch (error) {
-    console.error('Login user error:', error);
+    console.error('Login user service error:', error);
     return createErrorResponse(
       error,
       ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
@@ -99,118 +89,103 @@ const loginUser = async (res, user, options = {}) => {
   }
 };
 
-const logoutUser = async (res) => {
+const logoutUserService = () => {
   try {
-    const clearResult = clearAuthCookies(res);
-    
-    if (!clearResult.success) {
-      console.warn('Failed to clear cookies, but proceeding with logout:', clearResult.message);
-    }
-
     return createSuccessResponse({ 
       redirectUrl: '/login' 
     }, '登出成功');
-
   } catch (error) {
-    console.error('Logout user error:', error);
-    clearAuthCookies(res);
+    console.error('Logout user service error:', error);
     return createSuccessResponse({ 
       redirectUrl: '/login' 
     }, '登出成功');
   }
 };
 
-const refreshTokenFromCookies = (req, res, userInfo) => {
+const refreshTokenService = (refreshToken, userInfo) => {
   try {
-    if (!req || !res || !userInfo) {
-      return createErrorResponse(
-        new Error('Request, response, and userInfo are required'),
-        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
-      );
-    }
-
-    const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
     if (!refreshToken) {
       return createErrorResponse(null, ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN);
     }
 
+    if (!userInfo) {
+      return createErrorResponse(
+        new Error('UserInfo is required for token refresh'),
+        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
+      );
+    }
+
     const refreshResult = refreshAccessToken(refreshToken, userInfo);
     if (!refreshResult.success) {
-      clearAuthCookies(res);
       return refreshResult;
     }
 
     const { accessToken, userId, user } = refreshResult.data;
-
-    res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
-
     const displayInfo = createDisplayInfo(userInfo);
-    res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
 
     return createSuccessResponse({
       accessToken,
       userId,
       user,
+      fullUserData: userInfo,
       displayInfo,
       refreshed: true
     }, 'Token 刷新成功');
 
   } catch (error) {
-    console.error('Error refreshing token from cookies:', error);
-    clearAuthCookies(res);
+    console.error('Error refreshing token:', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.REFRESH_ERROR);
   }
 };
 
-const verifyAuth = async (req, res) => {
+const verifyAuthService = (cookieData, refreshToken, shouldRefreshFn) => {
   try {
-    const cookieData = getFromCookies(req);
-    if (!cookieData.success) {
+    if (!cookieData || !cookieData.success) {
       return createErrorResponse(null, ERROR_TYPES.AUTH.TOKEN.AUTH_READ_FAILED);
     }
 
     const { data } = cookieData;
+
     if (!data.hasValidAuth) {
-      if (data.hasRememberMe && data.userInfo) {
-        const refreshResult = refreshTokenFromCookies(req, res, data.userInfo);
+      if (data.hasRememberMe && data.userInfo && refreshToken) {
+        const refreshResult = refreshTokenService(refreshToken, data.userInfo);
         if (refreshResult.success) {
           return createSuccessResponse({
             user: refreshResult.data.user,
             userInfo: refreshResult.data.displayInfo,
+            fullUserData: refreshResult.data.fullUserData,
             refreshed: true
           }, 'Token 已自動刷新');
         }
-        clearAuthCookies(res);
       }
       return createErrorResponse(null, ERROR_TYPES.AUTH.TOKEN.AUTH_EXPIRED);
     }
 
-    if (data.hasRememberMe && data.userInfo) {
-      const refreshCheck = shouldRefreshToken(req);
-      if (refreshCheck.shouldRefresh) {
-        const refreshResult = refreshTokenFromCookies(req, res, data.userInfo);
-        if (refreshResult.success) {
-          return createSuccessResponse({
-            user: refreshResult.data.user,
-            userInfo: refreshResult.data.displayInfo,
-            refreshed: true
-          }, 'Token 已預先刷新');
-        }
-        console.warn('Token pre-refresh failed, but original token is still valid');
+    if (data.hasRememberMe && data.userInfo && refreshToken && shouldRefreshFn && shouldRefreshFn()) {
+      const refreshResult = refreshTokenService(refreshToken, data.userInfo);
+      if (refreshResult.success) {
+        return createSuccessResponse({
+          user: refreshResult.data.user,
+          userInfo: refreshResult.data.displayInfo,
+          fullUserData: refreshResult.data.fullUserData,
+          refreshed: true
+        }, 'Token 已預先刷新');
       }
+      console.warn('Token pre-refresh failed, but original token is still valid');
     }
+
     return createSuccessResponse({
       user: data.tokenData.access,
       userInfo: data.userInfo
     }, '認證驗證成功');
 
   } catch (error) {
-    console.error('Verify auth error:', error);
+    console.error('Verify auth service error:', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED);
   }
 };
 
-const loginWithProvider = async (res, user, provider, options = {}) => {
+const loginWithProviderService = async (user, provider, options = {}) => {
   try {
     if (!provider) {
       return createErrorResponse(
@@ -224,34 +199,24 @@ const loginWithProvider = async (res, user, provider, options = {}) => {
       providerType: provider 
     };
 
-    return await loginUser(res, userWithProvider, options);
+    return await loginUserService(userWithProvider, options);
   } catch (error) {
-    console.error(`Login with ${provider} error:`, error);
+    console.error(`Login with ${provider} service error:`, error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.PROVIDER.PROVIDER_LOGIN_FAILED);
   }
 };
 
-const getCurrentUserFromCookies = (req) => {
+const getCurrentUserFromCookiesService = (cookieData) => {
   try {
-    const cookieData = getFromCookies(req);
-    
-    if (!cookieData.success || !cookieData.data.hasValidAuth) {
+    if (!cookieData || !cookieData.success || !cookieData.data.hasValidAuth) {
       return null;
     }
     
     return cookieData.data.userInfo;
   } catch (error) {
-    console.error('Error getting current user:', error);
+    console.error('Error getting current user from cookies:', error);
     return null;
   }
 };
 
-export {
-  loginUser,
-  logoutUser,
-  verifyAuth,
-  validateUserInfo,
-  loginWithProvider,
-  refreshTokenFromCookies,
-  getCurrentUserFromCookies
-};
+export { validateUserInfo, loginUserService, refreshTokenService, verifyAuthService, loginWithProviderService, getCurrentUserFromCookiesService };

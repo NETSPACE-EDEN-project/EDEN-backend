@@ -1,25 +1,45 @@
-import { verifyAuth } from '../services/auth/authService.js';
+import { verifyAuthService } from '../services/auth/authService.js';
+import { shouldRefreshToken } from '../services/auth/tokenService.js';
+import { COOKIE_NAMES } from '../../config/authConfig.js';
+import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
 const requireAuth = async (req, res, next) => {
   try {
-    const authResult = await verifyAuth(req, res);
+    const cookieData = getFromCookies(req);
+    const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
+    
+    const result = verifyAuthService(
+      cookieData,
+      refreshToken,
+      () => shouldRefreshToken(req).shouldRefresh
+    );
 
-    if (!authResult.success) {
-      return res.status(401).json(authResult);
+    if (!result.success) {
+      clearAuthCookies(res);
+      return res.status(401).json(result);
     }
 
-    req.user = authResult.data.user;
-    req.userInfo = authResult.data.userInfo;
+    req.user = result.data.user;
+    req.userInfo = result.data.userInfo;
     req.isAuthenticated = true;
 
-    if (authResult.data.refreshed) {
-      res.setHeader('X-Token-Refreshed', 'true');
+    if (result.data.refreshed && result.data.fullUserData) {
+      const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+        rememberMe: true 
+      });
+      
+      if (cookieResult.success) {
+        res.setHeader('X-Token-Refreshed', 'true');
+      } else {
+        console.warn('Failed to update cookies after token refresh:', cookieResult.message);
+      }
     }
 
     next();
   } catch (error) {
     console.error('RequireAuth middleware error:', error);
+    clearAuthCookies(res);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED
@@ -29,15 +49,30 @@ const requireAuth = async (req, res, next) => {
 
 const optionalAuth = async (req, res, next) => {
   try {
-    const authResult = await verifyAuth(req, res);
+    const cookieData = getFromCookies(req);
+    const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
+    
+    const result = verifyAuthService(
+      cookieData,
+      refreshToken,
+      () => shouldRefreshToken(req).shouldRefresh
+    );
 
-    if (authResult.success) {
-      req.user = authResult.data.user;
-      req.userInfo = authResult.data.userInfo;
+    if (result.success) {
+      req.user = result.data.user;
+      req.userInfo = result.data.userInfo;
       req.isAuthenticated = true;
 
-      if (authResult.data.refreshed) {
-        res.setHeader('X-Token-Refreshed', 'true');
+      if (result.data.refreshed && result.data.fullUserData) {
+        const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+          rememberMe: true 
+        });
+        
+        if (cookieResult.success) {
+          res.setHeader('X-Token-Refreshed', 'true');
+        } else {
+          console.warn('Failed to update cookies after token refresh:', cookieResult.message);
+        }
       }
     } else {
       req.user = null;
@@ -179,10 +214,4 @@ const requireOwnershipOrAdmin = (userIdParam = 'userId') => {
   };
 };
 
-export { 
-  requireAuth, 
-  optionalAuth, 
-  requireRole, 
-  validateRequest,
-  requireOwnershipOrAdmin 
-};
+export { requireAuth, optionalAuth, requireRole, validateRequest, requireOwnershipOrAdmin };
