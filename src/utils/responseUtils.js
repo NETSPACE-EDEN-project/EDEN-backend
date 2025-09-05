@@ -17,7 +17,7 @@ const createErrorResponse = (error, errorType = null, extra = null) => {
   };
 };
 
-const createSuccessResponse = (data, message = null) => ({
+const createSuccessResponse = (data = null, message = null) => ({
   success: true,
   ...(data && { data }),
   ...(message && { message })
@@ -100,4 +100,4 @@ const ERROR_TYPES = {
   }
 };
 
-export { createErrorResponse, createSuccessResponse, getJWTErrorMessage, ERROR_TYPES }
+export { createErrorResponse, createSuccessResponse, ERROR_TYPES };

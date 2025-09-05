@@ -1,6 +1,7 @@
 import dotenv from 'dotenv';
 
 dotenv.config();
+
 const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
 
@@ -9,11 +10,10 @@ if (!JWT_SECRET || !REFRESH_SECRET) {
   process.exit(1);
 }
 
-
 const JWT_CONFIG = {
   access: {
     secret: JWT_SECRET,
-    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '2h'
+    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m'
   },
   refresh: {
     secret: REFRESH_SECRET,
@@ -21,20 +21,18 @@ const JWT_CONFIG = {
   }
 };
 
-
 const COOKIE_NAMES = {
   AUTH_TOKEN: 'auth_token',
   USER_DISPLAY: 'user_display', 
   REMEMBER_ME: 'remember_me'
 };
 
-// Cookie 配置
 const cookieConfig = {
   auth_token: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 2 * 60 * 60 * 1000,
+    maxAge: 15 * 60 * 1000,
     path: '/',
     signed: true
   },

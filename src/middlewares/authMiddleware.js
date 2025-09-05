@@ -1,19 +1,17 @@
 import { verifyAuth } from '../services/auth/authService.js';
-import { createErrorResponse, ERROR_TYPES } from '../utils/errorUtils.js';
+import { createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
 const requireAuth = async (req, res, next) => {
   try {
     const authResult = await verifyAuth(req, res);
 
     if (!authResult.success) {
-      return res.status(401).json(createErrorResponse(
-        null,
-        ERROR_TYPES.AUTH.USER.AUTHENTICATION_REQUIRED
-      ));
+      return res.status(401).json(authResult);
     }
 
     req.user = authResult.data.user;
     req.userInfo = authResult.data.userInfo;
+    req.isAuthenticated = true;
 
     if (authResult.data.refreshed) {
       res.setHeader('X-Token-Refreshed', 'true');
@@ -57,7 +55,7 @@ const optionalAuth = async (req, res, next) => {
   }
 };
 
-const requireRole = (requiredRole) => {
+const requireRole = (requiredRole, options = {}) => {
   return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json(createErrorResponse(
@@ -66,19 +64,62 @@ const requireRole = (requiredRole) => {
       ));
     }
 
-    const roleHierarchy = {
-      user: 1,
-      admin: 2
-    };
+    if (!requiredRole) {
+      console.warn('requireRole middleware called without specifying required role');
+      return next();
+    }
 
-    const userLevel = roleHierarchy[req.user.role] || 0;
-    const requiredLevel = roleHierarchy[requiredRole] || 0;
-
-    if (userLevel < requiredLevel) {
+    const userRole = req.user.role;
+    if (!userRole) {
       return res.status(403).json(createErrorResponse(
         null,
-        ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS
+        ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
+        { reason: 'User has no role assigned' }
       ));
+    }
+
+    if (options.strict) {
+      if (userRole !== requiredRole) {
+        return res.status(403).json(createErrorResponse(
+          null,
+          ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
+          { 
+            reason: `Required role: ${requiredRole}, user role: ${userRole}`,
+            required: requiredRole,
+            current: userRole
+          }
+        ));
+      }
+    } else {
+      const roleHierarchy = {
+        user: 1,
+        moderator: 2,
+        admin: 3,
+        superadmin: 4
+      };
+
+      const userLevel = roleHierarchy[userRole] || 0;
+      const requiredLevel = roleHierarchy[requiredRole] || 0;
+
+      if (requiredLevel === 0) {
+        console.warn(`Unknown required role: ${requiredRole}`);
+        return res.status(500).json(createErrorResponse(
+          new Error(`Invalid role configuration: ${requiredRole}`),
+          ERROR_TYPES.AUTH.TOKEN.VALIDATION_ERROR
+        ));
+      }
+
+      if (userLevel < requiredLevel) {
+        return res.status(403).json(createErrorResponse(
+          null,
+          ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
+          { 
+            reason: `Required level: ${requiredLevel} (${requiredRole}), user level: ${userLevel} (${userRole})`,
+            required: requiredRole,
+            current: userRole
+          }
+        ));
+      }
     }
 
     next();
@@ -95,10 +136,53 @@ const validateRequest = (schema) => {
       return res.status(400).json(createErrorResponse(
         error,
         ERROR_TYPES.AUTH.TOKEN.VALIDATION_ERROR,
-        { details: error.issues.map(issue => issue.message) }
+        { details: error.issues ? error.issues.map(issue => issue.message) : [error.message] }
       ));
     }
   };
 };
 
-export { requireAuth, optionalAuth, requireRole, validateRequest };
+const requireOwnershipOrAdmin = (userIdParam = 'userId') => {
+  return (req, res, next) => {
+    if (!req.user) {
+      return res.status(401).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.AUTHENTICATION_REQUIRED
+      ));
+    }
+
+    const targetUserId = req.params[userIdParam];
+    const currentUserId = req.user.id;
+    const userRole = req.user.role;
+
+    if (targetUserId === currentUserId) {
+      return next();
+    }
+
+    const roleHierarchy = {
+      user: 1,
+      moderator: 2,
+      admin: 3,
+      superadmin: 4
+    };
+
+    const userLevel = roleHierarchy[userRole] || 0;
+    if (userLevel >= 3) {
+      return next();
+    }
+
+    return res.status(403).json(createErrorResponse(
+      null,
+      ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
+      { reason: 'Access denied: not owner or admin' }
+    ));
+  };
+};
+
+export { 
+  requireAuth, 
+  optionalAuth, 
+  requireRole, 
+  validateRequest,
+  requireOwnershipOrAdmin 
+};
