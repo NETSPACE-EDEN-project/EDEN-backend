@@ -1,256 +1,258 @@
-import { eq, and, desc } from 'drizzle-orm';
-import { chatRoomsTable, chatMembersTable, messagesTable, usersTable } from '../models/schema.js';
-import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/errorUtils.js';
+import { eq, and, desc, or, sql, inArray } from 'drizzle-orm';
 import { db } from '../config/db.js';
+import { chatRoomsTable, chatMembersTable, messagesTable, usersTable } from '../models/schema.js';
+import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
-const createChatRoom = async (req, res) => {
-	try {
-		const { name, description, roomType = 'group', memberIds = [] } = req.validatedData;
-    const createdBy = req.user.id;
+// 獲取聊天列表
+const getChatList = async (req, res) => {
+  try {
+    const userId = req.user.id;
 
-		if (!Array.isArray(memberIds)) {
+    const chats = await db
+      .select({
+        roomId: chatRoomsTable.id,
+        roomName: chatRoomsTable.roomName,
+        roomType: chatRoomsTable.roomType,
+        lastMessageAt: chatRoomsTable.lastMessageAt
+      })
+      .from(chatMembersTable)
+      .innerJoin(chatRoomsTable, eq(chatMembersTable.roomId, chatRoomsTable.id))
+      .where(eq(chatMembersTable.userId, userId))
+      .orderBy(desc(chatRoomsTable.lastMessageAt));
+
+    res.json(createSuccessResponse({ chats }));
+
+  } catch (error) {
+    console.error('Error getting chat list:', error);
+    res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.LIST.GET_ROOMS_FAILED));
+  }
+};
+
+// 開始私人聊天
+const startPrivateChat = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { targetUserId } = req.body;
+
+    if (!targetUserId || targetUserId === userId) {
       return res.status(400).json(createErrorResponse(
-        null,
-        '成員列表格式不正確',
-        'INVALID_MEMBER_IDS'
+        null, 
+        { code: 'InvalidTargetUser', message: '無效的聊天對象' }
       ));
     }
 
-		const result = await db.transaction(async (tx) => {
-			const [newRoom] = await tx.insert(chatRoomsTable).values({
-        name,
-        description,
-        roomType,
-        createdBy
-      }).returning();
+    // 檢查目標用戶是否存在
+    const [targetUser] = await db
+      .select({ id: usersTable.id, username: usersTable.username })
+      .from(usersTable)
+      .where(eq(usersTable.id, targetUserId))
+      .limit(1);
 
-			await tx.insert(chatMembersTable).values({
-        roomId: newRoom.id,
-        userId: createdBy,
+    if (!targetUser) {
+      return res.status(404).json(createErrorResponse(
+        null, 
+        { code: 'UserNotFound', message: '用戶不存在' }
+      ));
+    }
+
+    // 創建私人聊天室
+    const [newRoom] = await db
+      .insert(chatRoomsTable)
+      .values({
+        roomName: `私聊`,
+        roomType: 'private',
+        createdBy: userId
+      })
+      .returning();
+
+    // 添加兩個成員
+    await db
+      .insert(chatMembersTable)
+      .values([
+        { roomId: newRoom.id, userId: userId, role: 'member' },
+        { roomId: newRoom.id, userId: targetUserId, role: 'member' }
+      ]);
+
+    res.status(201).json(createSuccessResponse({
+      roomId: newRoom.id,
+      roomName: targetUser.username
+    }, '私人聊天室創建成功'));
+
+  } catch (error) {
+    console.error('Error starting private chat:', error);
+    res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
+  }
+};
+
+// 創建群組聊天
+const createGroupChat = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { groupName, memberIds = [] } = req.body;
+
+    if (!groupName?.trim()) {
+      return res.status(400).json(createErrorResponse(
+        null, 
+        { code: 'InvalidGroupName', message: '群組名稱不能為空' }
+      ));
+    }
+
+    // 創建群組
+    const [newGroup] = await db
+      .insert(chatRoomsTable)
+      .values({
+        roomName: groupName.trim(),
+        roomType: 'group',
+        createdBy: userId
+      })
+      .returning();
+
+    // 添加創建者
+    await db
+      .insert(chatMembersTable)
+      .values({
+        roomId: newGroup.id,
+        userId: userId,
         role: 'admin'
       });
 
-			if (memberIds.length > 0) {
-        const memberValues = memberIds.map(userId => ({
-          roomId: newRoom.id,
-          userId: parseInt(userId),
-          role: 'member'
-        }));
-        await tx.insert(chatMembersTable).values(memberValues);
-      }
+    // 添加其他成員（如果有）
+    if (memberIds.length > 0) {
+      const memberData = memberIds.map(memberId => ({
+        roomId: newGroup.id,
+        userId: memberId,
+        role: 'member'
+      }));
 
-			return newRoom;
-		});
-
-		return res.status(201).json(createSuccessResponse({
-      room: result,
-      memberCount: memberIds.length + 1
-    }, '聊天室創建成功'));
-	} catch (error) {
-		console.error('Create chat room error:', error);
-    return res.status(500).json(createErrorResponse(
-      error,
-      '創建聊天室失敗',
-      ERROR_TYPES.CREATE_ROOM_FAILED
-    ));
-	}
-};
-
-const getUserChatRooms = async (req, res) => {
-	try {
-		const userId = req.user.id;
-
-		const rooms = await db
-      .select({
-        id: chatRoomsTable.id,
-        name: chatRoomsTable.name,
-        description: chatRoomsTable.description,
-        roomType: chatRoomsTable.roomType,
-        createdAt: chatRoomsTable.createdAt,
-        memberRole: chatMembersTable.role,
-        lastReadAt: chatMembersTable.lastReadAt
-      })
-      .from(chatRoomsTable)
-      .innerJoin(chatMembersTable, eq(chatRoomsTable.id, chatMembersTable.roomId))
-      .where(and(
-        eq(chatMembersTable.userId, userId),
-        eq(chatRoomsTable.isActive, true)
-      ))
-      .orderBy(desc(chatRoomsTable.updatedAt));
-
-		return res.json(createSuccessResponse({ 
-      rooms,
-      totalCount: rooms.length
-    }, '獲取聊天室列表成功'));
-	} catch (error) {
-		console.error('Get user chat rooms error:', error);
-    return res.status(500).json(createErrorResponse(
-      error,
-      '獲取聊天室列表失敗',
-      ERROR_TYPES.GET_ROOMS_FAILED
-    ));
-	};
-};
-
-const getRoomMessages = async (req, res) => {
-	try {
-		const { roomId } = req.params;
-		const { page = 1, limit = 50 } = req.query;
-		const userId = req.user.id;
-		const roomIdInt = parseInt(roomId);
-    const pageInt = parseInt(page);
-    const limitInt = parseInt(limit);
-
-		if (isNaN(roomIdInt) || roomIdInt <= 0) {
-      return res.status(400).json(createErrorResponse(
-        null,
-        '無效的聊天室 ID',
-        'INVALID_ROOM_ID'
-      ));
+      await db
+        .insert(chatMembersTable)
+        .values(memberData);
     }
 
-		if (pageInt < 1 || limitInt < 1 || limitInt > 100) {
-      return res.status(400).json(createErrorResponse(
-        null,
-        '無效的分頁參數',
-        'INVALID_PAGINATION'
-      ));
-    }
+    res.status(201).json(createSuccessResponse({
+      roomId: newGroup.id,
+      roomName: newGroup.roomName
+    }, '群組聊天創建成功'));
 
-		const [membership] = await db
+  } catch (error) {
+    console.error('Error creating group chat:', error);
+    res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
+  }
+};
+
+// 獲取聊天室訊息
+const getMessages = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+
+    // 檢查用戶是否為聊天室成員
+    const [membership] = await db
       .select()
       .from(chatMembersTable)
       .where(and(
         eq(chatMembersTable.userId, userId),
-        eq(chatMembersTable.roomId, roomIdInt)
+        eq(chatMembersTable.roomId, roomId)
       ))
       .limit(1);
 
-			if (!membership) {
+    if (!membership) {
       return res.status(403).json(createErrorResponse(
-        null,
-        '您不是此聊天室的成員',
-        'NOT_ROOM_MEMBER'
+        null, 
+        ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER
       ));
     }
 
-		const offset = (pageInt - 1) * limitInt;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
 
-			const messages = await db
+    // 獲取訊息
+    const messages = await db
       .select({
         id: messagesTable.id,
         content: messagesTable.content,
-        type: messagesTable.type,
-        replyToId: messagesTable.replyToId,
-        isEdited: messagesTable.isEdited,
-        createdAt: messagesTable.createdAt,
-        sender: {
-          id: usersTable.id,
-          username: usersTable.username,
-          avatarUrl: usersTable.avatarUrl,
-          role: usersTable.role
-        }
+        senderId: messagesTable.senderId,
+        senderUsername: usersTable.username,
+        createdAt: messagesTable.createdAt
       })
       .from(messagesTable)
-      .innerJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
+      .leftJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
       .where(and(
-        eq(messagesTable.roomId, roomIdInt),
+        eq(messagesTable.roomId, roomId),
         eq(messagesTable.isDeleted, false)
       ))
       .orderBy(desc(messagesTable.createdAt))
-      .limit(limitInt)
+      .limit(parseInt(limit))
       .offset(offset);
 
-			return res.json(createSuccessResponse({
+    // 獲取總數
+    const [{ total }] = await db
+      .select({ 
+        total: sql`count(*)`.mapWith(Number)
+      })
+      .from(messagesTable)
+      .where(and(
+        eq(messagesTable.roomId, roomId),
+        eq(messagesTable.isDeleted, false)
+      ));
+
+    res.json(createSuccessResponse({ 
       messages: messages.reverse(),
       pagination: {
-        page: pageInt,
-        limit: limitInt,
-        hasMore: messages.length === limitInt
+        current: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+        hasNext: parseInt(page) * parseInt(limit) < total,
+        hasPrev: parseInt(page) > 1
       }
-    }, '獲取訊息成功'));
-	} catch (error) {
-		console.error('Get room messages error:', error);
-    return res.status(500).json(createErrorResponse(
-      error,
-      '獲取訊息失敗',
-      'GET_MESSAGES_FAILED'
-    ));
-	};
-};
-
-const joinChatRoom = async (req, res) => {
-  try {
-    const { roomId } = req.params;
-    const userId = req.user.id;
-    const roomIdInt = parseInt(roomId);
-
-    if (isNaN(roomIdInt) || roomIdInt <= 0) {
-      return res.status(400).json(createErrorResponse(
-        null,
-        '無效的聊天室 ID',
-        'INVALID_ROOM_ID'
-      ));
-    }
-
-    const [room] = await db
-      .select()
-      .from(chatRoomsTable)
-      .where(and(
-        eq(chatRoomsTable.id, roomIdInt),
-        eq(chatRoomsTable.isActive, true)
-      ))
-      .limit(1);
-
-    if (!room) {
-      return res.status(404).json(createErrorResponse(
-        null,
-        '聊天室不存在',
-        'ROOM_NOT_FOUND'
-      ));
-    }
-
-    const [existingMember] = await db
-      .select()
-      .from(chatMembersTable)
-      .where(and(
-        eq(chatMembersTable.roomId, roomIdInt),
-        eq(chatMembersTable.userId, userId)
-      ))
-      .limit(1);
-
-    if (existingMember) {
-      return res.status(400).json(createErrorResponse(
-        null,
-        '您已經是此聊天室的成員',
-        'ALREADY_MEMBER'
-      ));
-    }
-
-    await db.insert(chatMembersTable).values({
-      roomId: roomIdInt,
-      userId,
-      role: 'member'
-    });
-
-    return res.json(createSuccessResponse({
-      roomId: roomIdInt,
-      role: 'member'
-    }, '成功加入聊天室'));
+    }));
 
   } catch (error) {
-    console.error('Join chat room error:', error);
-    return res.status(500).json(createErrorResponse(
-      error,
-      '加入聊天室失敗',
-      'JOIN_ROOM_FAILED'
-    ));
+    console.error('Error getting messages:', error);
+    res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED));
+  }
+};
+
+// 搜尋用戶
+const searchUsers = async (req, res) => {
+  try {
+    const { keyword } = req.query;
+    const userId = req.user.id;
+
+    if (!keyword?.trim()) {
+      return res.status(400).json(createErrorResponse(
+        null, 
+        { code: 'InvalidKeyword', message: '搜尋關鍵字不能為空' }
+      ));
+    }
+
+    const users = await db
+      .select({
+        id: usersTable.id,
+        username: usersTable.username,
+        email: usersTable.email
+      })
+      .from(usersTable)
+      .where(and(
+        sql`${usersTable.username} ILIKE ${`%${keyword}%`}`,
+        eq(usersTable.status, 'active'),
+        sql`${usersTable.id} != ${userId}`
+      ))
+      .limit(10);
+
+    res.json(createSuccessResponse({ users }));
+
+  } catch (error) {
+    console.error('Error searching users:', error);
+    res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.LIST.GET_ROOMS_FAILED));
   }
 };
 
 export {
-  createChatRoom,
-  getUserChatRooms,
-  getRoomMessages,
-  joinChatRoom
+  getChatList,
+  startPrivateChat,
+  createGroupChat,
+  getMessages,
+  searchUsers
 };
