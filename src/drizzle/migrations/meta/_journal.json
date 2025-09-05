@@ -36,6 +36,13 @@
       "when": 1757054613602,
       "tag": "0004_odd_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1757057918653,
+      "tag": "0005_minor_butterfly",
+      "breakpoints": true
     }
   ]
 }
