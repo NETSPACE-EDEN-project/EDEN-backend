@@ -11,8 +11,9 @@ const createErrorResponse = (error, errorType = null, extra = null) => {
 
   return {
     success: false,
-    error: code,
-    message,
+    error,
+    code: code,
+    message: message,
     ...(extra && { extra })
   };
 };
@@ -49,9 +50,13 @@ const ERROR_TYPES = {
       NO_REFRESH_TOKEN: { code: 'NoRefreshToken', message: '缺少刷新 Token' },
       REFRESH_ERROR: { code: 'RefreshError', message: '刷新 Token 失敗' },
       GENERATE_ERROR: { code: 'GenerateError', message: '生成 Token 失敗' },
+      GENERATE_ACCESS_TOKEN_ERROR: { code: 'GenerateAccessTokenError', message: '生成 accessToken 失敗' },
+      GENERATE_REFRESH_TOKEN_ERROR: { code: 'GenerateRefreshTokenError', message: '生成 refreshToken 失敗' },
+      GENERATE_TOKEN_PAIR_ERROR: { code: 'GenerateTokenPairError', message: '生成 tokenPair 失敗' },
       DECODE_ERROR: { code: 'DecodeError', message: 'Token 解碼失敗' },
       INVALID_INPUT: { code: 'InvalidInput', message: '輸入資料無效' },
-      VALIDATION_ERROR: { code: 'ValidationError', message: '請求資料驗證失敗' }
+      VALIDATION_ERROR: { code: 'ValidationError', message: '請求資料驗證失敗' },
+      INVALID_TOKEN_TYPE: { code: 'InvalidTokenType', message: '無效的 Token 型別' }
     },
     COOKIE: {
       COOKIE_ERROR: { code: 'CookieError', message: 'Cookie 錯誤' },

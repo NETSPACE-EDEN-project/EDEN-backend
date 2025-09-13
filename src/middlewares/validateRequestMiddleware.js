@@ -1,3 +1,5 @@
+import { createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
+
 const validateRequest = (schema) => {
   return (req, res, next) => {
     try {

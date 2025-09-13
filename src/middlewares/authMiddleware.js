@@ -8,11 +8,13 @@ const requireAuth = async (req, res, next) => {
   try {
     const cookieData = getFromCookies(req);
     const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
-    
-    const result = verifyAuthService(
+
+    const refreshCheck = shouldRefreshToken(req);
+    const { shouldRefresh } = refreshCheck;
+    const result = await verifyAuthService(
       cookieData,
       refreshToken,
-      () => shouldRefreshToken(req).shouldRefresh
+      shouldRefresh
     );
 
     if (!result.success) {
@@ -20,21 +22,21 @@ const requireAuth = async (req, res, next) => {
       return res.status(401).json(result);
     }
 
-    req.user = result.data.user;
-    req.userInfo = result.data.userInfo;
+    req.user = result.data.userInfo;
     req.isAuthenticated = true;
 
-    if (result.data.refreshed && result.data.fullUserData) {
-      const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
-        rememberMe: true 
-      });
-      
-      if (cookieResult.success) {
-        res.setHeader('X-Token-Refreshed', 'true');
-      } else {
-        console.warn('Failed to update cookies after token refresh:', cookieResult.message);
-      }
+    if (result.data.refreshed) {
+    const cookieResult = setAuthCookies(res, result.data.userInfo, { 
+      rememberMe: true,
+      updateRefreshToken: false
+    });
+
+    if (cookieResult.success) {
+      res.setHeader('X-Token-Refreshed', 'true');
+    } else {
+      console.warn('Failed to update cookies after token refresh:', cookieResult.message);
     }
+  }
 
     next();
   } catch (error) {
@@ -52,20 +54,23 @@ const optionalAuth = async (req, res, next) => {
     const cookieData = getFromCookies(req);
     const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
     
-    const result = verifyAuthService(
+    const refreshCheck = shouldRefreshToken(req);
+    const { shouldRefresh } = refreshCheck;
+    
+    const result = await verifyAuthService(
       cookieData,
       refreshToken,
-      () => shouldRefreshToken(req).shouldRefresh
+      shouldRefresh
     );
 
     if (result.success) {
-      req.user = result.data.user;
-      req.userInfo = result.data.userInfo;
+      req.user = result.data.userInfo;
       req.isAuthenticated = true;
 
-      if (result.data.refreshed && result.data.fullUserData) {
-        const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
-          rememberMe: true 
+      if (result.data.refreshed) {
+        const cookieResult = setAuthCookies(res, result.data.userInfo, { 
+          rememberMe: true,
+          updateRefreshToken: false
         });
         
         if (cookieResult.success) {
@@ -76,7 +81,6 @@ const optionalAuth = async (req, res, next) => {
       }
     } else {
       req.user = null;
-      req.userInfo = null;
       req.isAuthenticated = false;
     }
 
@@ -84,7 +88,6 @@ const optionalAuth = async (req, res, next) => {
   } catch (error) {
     console.error('OptionalAuth middleware error:', error);
     req.user = null;
-    req.userInfo = null;
     req.isAuthenticated = false;
     next();
   }

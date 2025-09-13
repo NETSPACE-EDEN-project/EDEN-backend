@@ -129,10 +129,10 @@ const login = async (req, res) => {
       return res.status(400).json(result);
     }
 
-    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
-      rememberMe 
-    });
-    
+    const cookieResult = setAuthCookies(res, userForLogin, { 
+    rememberMe 
+  });
+
     if (!cookieResult.success) {
       console.log('Cookie setting failed:', cookieResult.message);
       return res.status(500).json(createErrorResponse(
@@ -195,14 +195,15 @@ const refreshToken = async (req, res) => {
       ));
     }
 
-    const result = refreshTokenService(refreshTokenValue, cookieData.data.userInfo);
+    const result = await refreshTokenService(refreshTokenValue);
     if (!result.success) {
       clearAuthCookies(res);
       return res.status(401).json(result);
     }
 
-    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
-      rememberMe: true 
+    const cookieResult = setAuthCookies(res, result.data.displayInfo, { 
+      rememberMe: true,
+      updateRefreshToken: false
     });
     
     if (!cookieResult.success) {
@@ -210,7 +211,7 @@ const refreshToken = async (req, res) => {
     }
 
     return res.status(200).json(createSuccessResponse({
-      user: result.data.user,
+      user: result.data.displayInfo,
       refreshed: true
     }, 'Token 刷新成功'));
 
@@ -235,7 +236,6 @@ const getCurrentUserHandler = async (req, res) => {
 
     return res.status(200).json(createSuccessResponse({
       user: req.user,
-      userInfo: req.userInfo,
       isAuthenticated: req.isAuthenticated || true
     }, '獲取用戶資訊成功'));
   } catch (error) {
@@ -267,7 +267,7 @@ const loginWithProvider = async (req, res) => {
       return res.status(400).json(result);
     }
 
-    const cookieResult = setAuthCookies(res, result.data.fullUserData, { 
+    const cookieResult = setAuthCookies(res, user, { 
       rememberMe 
     });
     
@@ -296,8 +296,7 @@ const verifyAuthStatus = async (req, res) => {
   try {
     return res.status(200).json(createSuccessResponse({
       isAuthenticated: req.isAuthenticated || false,
-      user: req.user || null,
-      userInfo: req.userInfo || null
+      user: req.user || null
     }, '認證狀態檢查完成'));
   } catch (error) {
     console.error('Verify auth status error:', error);

@@ -1,4 +1,7 @@
 import jwt from 'jsonwebtoken';
+import { eq } from 'drizzle-orm';
+import { db } from '../../config/db.js';
+import { usersTable, emailTable } from '../../models/schema.js';
 import { JWT_CONFIG, COOKIE_NAMES } from '../../config/authConfig.js';
 import { buildTokenPayload, isTokenExpiringSoon } from '../../utils/tokenUtils.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
@@ -10,10 +13,10 @@ const generateAccessToken = (user) => {
       expiresIn: JWT_CONFIG.access.expiresIn 
     });
 
-    return createSuccessResponse(token);
+    return createSuccessResponse(token, '生成 accessToken 成功');
   } catch (error) {
     console.error('Error generating access token:', error);
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_ERROR);
+    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_ACCESS_TOKEN_ERROR);
   }
 };
 
@@ -24,10 +27,10 @@ const generateRefreshToken = (user) => {
       expiresIn: JWT_CONFIG.refresh.expiresIn 
     });
 
-    return createSuccessResponse(token);
+    return createSuccessResponse(token, '生成 refreshToken 成功');
   } catch (error) {
     console.error('Error generating refresh token:', error);
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_ERROR);
+    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_REFRESH_TOKEN_ERROR);
   }
 };
 
@@ -42,56 +45,48 @@ const generateTokenPair = (user) => {
     return createSuccessResponse({ 
       accessToken: accessResult.data, 
       refreshToken: refreshResult.data 
-    });
+    }, '生成 tokenPair 成功');
   } catch (error) {
     console.error('Error generating token pair:', error);
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_ERROR);
+    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_TOKEN_PAIR_ERROR);
   }
 };
 
-const verifyAccessToken = (token) => {
+const verifyToken = (token, tokenType) => {
   try {
     if (!token) {
-      throw new Error('Token is required');
-    }
-
-    const decoded = jwt.verify(token, JWT_CONFIG.access.secret);
-    
-    if (decoded.type !== 'access') {
-      throw new Error('Invalid token type');
-    }
-
-    return createSuccessResponse(decoded);
-  } catch (error) {
-    console.error('Access Token verification failed:', error.message);
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED);
-  }
-};
-
-const verifyRefreshToken = (token) => {
-  try {
-    if (!token) {
-      throw new Error('Token is required');
-    }
-
-    const decoded = jwt.verify(token, JWT_CONFIG.refresh.secret);
-    
-    if (decoded.type !== 'refresh') {
-      throw new Error('Invalid token type');
-    }
-
-    return createSuccessResponse(decoded);
-  } catch (error) {
-    console.error('Refresh Token verification failed:', error.message);
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED);
-  }
-};
-
-const refreshAccessToken = (refreshToken, userInfo) => {
-  try {
-    if (!refreshToken || !userInfo) {
       return createErrorResponse(
-        new Error('Refresh token and user info are required'),
+        new Error('Token is required'), 
+        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
+      );
+    }
+
+    const config = tokenType === 'access' ? JWT_CONFIG.access : JWT_CONFIG.refresh;
+    const decoded = jwt.verify(token, config.secret);
+
+    if (decoded.type !== tokenType) {
+      return createErrorResponse(
+        new Error('Invalid token type'), 
+        ERROR_TYPES.AUTH.TOKEN.INVALID_TOKEN_TYPE
+      );
+    }
+    
+    return createSuccessResponse(decoded, `成功驗證 ${tokenType} Token`);
+  } catch (error) {
+    console.error(`${tokenType} Token verification failed:`, error.message);
+    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED);
+  }
+};
+
+const verifyAccessToken = (token) => verifyToken(token, 'access');
+
+const verifyRefreshToken = (token) => verifyToken(token, 'refresh');
+
+const refreshAccessToken = async (refreshToken) => {
+  try {
+    if (!refreshToken) {
+      return createErrorResponse(
+        new Error('Refresh token is required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
       );
     }
@@ -102,14 +97,36 @@ const refreshAccessToken = (refreshToken, userInfo) => {
     }
 
     const refreshData = refreshResult.data;
-    
+    const userId = refreshData.id;
+
+    const [user] = await db.select({
+      id: usersTable.id,
+      username: usersTable.username,
+      email: emailTable.email,
+      avatarUrl: usersTable.avatarUrl || null,
+      role: usersTable.role,
+      status: usersTable.status,
+      providerType: usersTable.providerType,
+    })
+    .from(usersTable)
+    .leftJoin(emailTable, eq(usersTable.id, emailTable.userId))
+    .where(eq(usersTable.id, userId))
+    .limit(1);
+
+    if (!user) {
+      return createErrorResponse(
+        new Error('User is not exist'),
+        ERROR_TYPES.AUTH.USER.INVALID_USER_INFO
+      );
+    }
+
     const userForToken = {
-      id: refreshData.id,
-      username: userInfo.username,
-      email: userInfo.email,
-      role: refreshData.role,
-      status: userInfo.status || 'active',
-      providerType: userInfo.providerType
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      status: user.status || 'active',
+      providerType: user.providerType
     };
 
     const accessResult = generateAccessToken(userForToken);
@@ -119,7 +136,7 @@ const refreshAccessToken = (refreshToken, userInfo) => {
 
     return createSuccessResponse({ 
       accessToken: accessResult.data, 
-      userId: refreshData.id,
+      userId: user.id,
       user: userForToken
     });
   } catch (error) {
@@ -133,17 +150,24 @@ const shouldRefreshToken = (req) => {
     const authToken = req.signedCookies?.[COOKIE_NAMES.AUTH_TOKEN];
     const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
 
-    if (!authToken && refreshToken) {
-      return { 
-        shouldRefresh: true, 
-        reason: 'No access token but has refresh token' 
-      };
-    }
-
-    if (!authToken) {
+    if (!authToken && !refreshToken) {
       return { 
         shouldRefresh: false, 
         reason: 'No tokens available' 
+      };
+    }
+
+    if (!authToken && refreshToken) {
+      const refreshVerifyResult = verifyRefreshToken(refreshToken);
+      if (!refreshVerifyResult.success) {
+        return { 
+          shouldRefresh: false, 
+          reason: 'Refresh token invalid' 
+        };
+      }
+      return { 
+        shouldRefresh: true, 
+        reason: 'No access token but has valid refresh token' 
       };
     }
 
@@ -154,9 +178,18 @@ const shouldRefreshToken = (req) => {
           reason: 'Token expiring but no refresh token' 
         };
       }
+
+      const refreshVerifyResult = verifyRefreshToken(refreshToken);
+      if (!refreshVerifyResult.success) {
+        return { 
+          shouldRefresh: false, 
+          reason: 'Token expiring and refresh token invalid' 
+        };
+      }
+
       return { 
         shouldRefresh: true, 
-        reason: 'Token expiring soon' 
+        reason: 'Token expiring soon and refresh token valid' 
       };
     }
 
@@ -165,24 +198,34 @@ const shouldRefreshToken = (req) => {
       if (!refreshToken) {
         return { 
           shouldRefresh: false, 
-          reason: 'Token invalid but no refresh token' 
+          reason: 'Access token invalid and no refresh token' 
         };
       }
+
+      const refreshVerifyResult = verifyRefreshToken(refreshToken);
+      if (!refreshVerifyResult.success) {
+        return { 
+          shouldRefresh: false, 
+          reason: 'Both tokens invalid' 
+        };
+      }
+
       return { 
         shouldRefresh: true, 
-        reason: 'Token invalid' 
+        reason: 'Access token invalid but refresh token valid' 
       };
     }
 
     return { 
       shouldRefresh: false, 
-      reason: 'Token valid' 
+      reason: 'Access token valid' 
     };
   } catch (error) {
     console.error('Error checking if should refresh token:', error);
     return { 
       shouldRefresh: false, 
-      reason: 'Check failed' 
+      reason: 'Token validation check failed',
+      error: error.message 
     };
   }
 };

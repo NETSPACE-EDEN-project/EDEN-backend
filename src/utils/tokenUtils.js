@@ -1,5 +1,16 @@
 import jwt from 'jsonwebtoken';
-import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from './responseUtils.js';
+import { JWT_CONFIG } from '../config/authConfig.js';
+
+const buildDisplayInfo = (user) => ({
+  id: user.id,
+  username: user.username,
+  email: user.email,
+  avatarUrl: user.avatarUrl || null,
+  role: user.role || 'user',
+  status: user.status,
+  providerType: user.providerType || null,
+  lastLoginAt: user.lastLoginAt || new Date().toISOString()
+});
 
 const buildTokenPayload = (user, type) => {
   if (type === 'access') {
@@ -7,6 +18,7 @@ const buildTokenPayload = (user, type) => {
       id: user.id,
       username: user.username,
       email: user.email,
+      avatarUrl: user.avatarUrl || null,
       role: user.role || 'user',
       status: user.status,
       providerType: user.providerType,
@@ -24,34 +36,11 @@ const buildTokenPayload = (user, type) => {
   }
 };
 
-const decodeToken = (token) => {
-  try {
-    if (!token) {
-      return createErrorResponse(
-        new Error('Token is required'), 
-        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
-      );
-    }
-
-    const decoded = jwt.decode(token);
-    if (!decoded) {
-      return createErrorResponse(
-        new Error('Unable to decode token'), 
-        ERROR_TYPES.AUTH.TOKEN.DECODE_ERROR
-      );
-    }
-
-    return createSuccessResponse(decoded);
-  } catch (error) {
-    return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.DECODE_ERROR);
-  }
-};
-
 const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
   try {
     if (!token) return true;
 
-    const decoded = jwt.decode(token);
+    const decoded = jwt.verify(token, JWT_CONFIG.access.secret);
     if (!decoded) {
       console.warn('Invalid JWT format when checking expiration');
       return true;
@@ -69,18 +58,8 @@ const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
   }
 };
 
-const createDisplayInfo = (user) => ({
-  id: user.id,
-  username: user.username,
-  avatarUrl: user.avatarUrl || null,
-  role: user.role || 'user',
-  providerType: user.providerType || null,
-  lastLoginAt: user.lastLoginAt || new Date().toISOString()
-});
-
 export {
   buildTokenPayload,
-  decodeToken,
   isTokenExpiringSoon,
-  createDisplayInfo
+  buildDisplayInfo
 };

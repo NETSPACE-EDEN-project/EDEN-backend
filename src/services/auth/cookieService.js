@@ -1,6 +1,6 @@
 import { COOKIE_NAMES, cookieConfig, clearCookieConfig } from '../../config/authConfig.js';
 import { generateTokenPair, verifyAccessToken, verifyRefreshToken } from './tokenService.js';
-import { createDisplayInfo } from '../../utils/tokenUtils.js';
+import { buildDisplayInfo } from '../../utils/tokenUtils.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
 
 const setAuthCookies = (res, user, options = {}) => {
@@ -12,26 +12,44 @@ const setAuthCookies = (res, user, options = {}) => {
       );
     }
 
-    const tokenResult = generateTokenPair(user);
-    if (!tokenResult.success) {
-      return tokenResult;
+    const {
+      rememberMe = false,
+      updateAccessToken = true,
+      updateRefreshToken = true,
+      updateDisplayInfo = true
+    } = options;
+
+    let accessToken = null;
+    let refreshToken = null;
+
+    if (updateAccessToken || (updateRefreshToken && rememberMe)) {
+      const tokenResult = generateTokenPair(user);
+      if (!tokenResult.success) {
+        return tokenResult;
+      }
+      
+      const tokens = tokenResult.data;
+      accessToken = tokens.accessToken;
+      refreshToken = tokens.refreshToken;
     }
 
-    const { accessToken, refreshToken } = tokenResult.data;
+    if (updateAccessToken && accessToken) {
+      res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
+    }
 
-    res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
-
-    if (options.rememberMe) {
+    if (updateRefreshToken && rememberMe && refreshToken) {
       res.cookie(COOKIE_NAMES.REMEMBER_ME, refreshToken, cookieConfig.remember_me);
     }
 
-    const displayInfo = createDisplayInfo(user);
-    res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
+    if (updateDisplayInfo) {
+      const displayInfo = buildDisplayInfo(user);
+      res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
+    }
 
     return createSuccessResponse({ 
       accessToken, 
-      refreshToken: options.rememberMe ? refreshToken : null,
-      displayInfo 
+      refreshToken: (updateRefreshToken && rememberMe) ? refreshToken : null,
+      displayInfo: updateDisplayInfo ? buildDisplayInfo(user) : null
     });
   } catch (error) {
     console.error('Error setting auth cookies:', error);
@@ -74,12 +92,7 @@ const getFromCookies = (req) => {
 
     let userInfo = null;
     if (displayInfoRaw) {
-      try { 
-        userInfo = JSON.parse(displayInfoRaw); 
-      } 
-      catch (error) { 
-        console.warn('Failed to parse user display info:', error);
-      }
+      userInfo = JSON.parse(displayInfoRaw); 
     }
 
     let validAccessToken = null;
