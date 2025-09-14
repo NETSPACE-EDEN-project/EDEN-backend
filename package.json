@@ -16,6 +16,7 @@
   "main": "server.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "start:zeabur": "node server.js",
     "start": "nodemon server.js",
     "generate": "drizzle-kit generate",
     "migrate": "drizzle-kit migrate",
