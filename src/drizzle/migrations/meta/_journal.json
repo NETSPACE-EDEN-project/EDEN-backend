@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1756479764232,
-      "tag": "0000_ambiguous_preak",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1756566591322,
-      "tag": "0001_sad_kabuki",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1756714599320,
-      "tag": "0002_busy_the_hunter",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1756714652109,
-      "tag": "0003_sharp_hellcat",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1757054613602,
-      "tag": "0004_odd_eternity",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1757057918653,
-      "tag": "0005_minor_butterfly",
+      "when": 1757868815434,
+      "tag": "0000_chunky_captain_britain",
       "breakpoints": true
     }
   ]

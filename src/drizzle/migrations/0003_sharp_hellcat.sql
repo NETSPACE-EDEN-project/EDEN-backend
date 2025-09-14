@@ -1,1 +1,0 @@
-ALTER TABLE "chat_members" ALTER COLUMN "role" SET DEFAULT 'member';
