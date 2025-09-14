@@ -1,5 +1,6 @@
 import { pgTable, serial, integer, timestamp, index, uniqueIndex } from 'drizzle-orm/pg-core';
-import { chatRoomsTable, usersTable, roleEnum } from '../schema.js';
+import { roleEnum } from '../../enums/enums.js';
+import { chatRoomsTable, usersTable } from '../tables.js';
 
 const chatMembersTable = pgTable('chat_members', {
 	id: serial('id').primaryKey(),
