@@ -132,11 +132,12 @@ const login = async (req, res) => {
     console.log('About to call setAuthCookies with user:', userForLogin.id);
     console.log('RememberMe option:', rememberMe);
 
-    res.cookie('simple_test', 'hello', {
-  secure: false,
-  httpOnly: false,
-  sameSite: 'lax'
-});
+    res.cookie('test_cookie', 'cross_domain_test', {
+      secure: true,
+      sameSite: 'none',
+      httpOnly: false, // 方便在瀏覽器檢查
+      maxAge: 60000
+    });
 
     const cookieResult = setAuthCookies(res, userForLogin, { 
     rememberMe 
