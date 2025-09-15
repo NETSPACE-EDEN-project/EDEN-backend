@@ -13,11 +13,15 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    if (process.env.NODE_ENV === 'production' && !origin) {
-      return callback(new Error('CORS policy: origin is required in production'), false);
+    console.log('CORS check - Origin:', origin); // 添加日誌查看問題
+    
+    // 允許沒有 origin 的請求
+    if (!origin) {
+      return callback(null, true);
     }
 
-    if (!origin || allowedOrigins.includes(origin)) {
+    // 檢查允許的來源
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     } else {
       console.warn(`CORS rejected: ${origin}`);
