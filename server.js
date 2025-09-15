@@ -17,6 +17,7 @@ const httpServer = createServer(app);
 app.use(express.json());
 app.use(cors(corsOptions));
 app.use(cookieParser(process.env.COOKIE_SECRET));
+console.log('Cookie secret exists:', !!process.env.COOKIE_SECRET);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
@@ -55,5 +56,4 @@ const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`WebSocket server is ready`);
-  console.log(`API: http://localhost:${PORT}`);
 });

@@ -6,6 +6,7 @@ import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../u
 const setAuthCookies = (res, user, options = {}) => {
   console.log('=== setAuthCookies START ===');
   console.log('User ID:', user?.id);
+  console.log('NODE_ENV:', process.env.NODE_ENV);
   console.log('Options:', options);
   
   try {
@@ -46,10 +47,10 @@ const setAuthCookies = (res, user, options = {}) => {
     }
 
     if (updateAccessToken && accessToken) {
-      console.log('Setting auth token cookie');
-      console.log('Cookie config:', cookieConfig.auth_token);
+      console.log('Setting auth token cookie with config:', cookieConfig.auth_token);
+      console.log('Access token (first 50 chars):', accessToken.substring(0, 50));
       res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
-      console.log('Auth token cookie set');
+      console.log('Response Set-Cookie headers:', res.getHeaders()['set-cookie']);
     } else {
       console.log('Auth token NOT set - updateAccessToken:', updateAccessToken, 'accessToken exists:', !!accessToken);
     }
@@ -71,6 +72,7 @@ const setAuthCookies = (res, user, options = {}) => {
     }
 
     console.log('=== setAuthCookies SUCCESS ===');
+    console.log('=== setAuthCookies END ===');
     return createSuccessResponse({ 
       accessToken, 
       refreshToken: (updateRefreshToken && rememberMe) ? refreshToken : null,
@@ -104,6 +106,9 @@ const clearAuthCookies = (res) => {
 
 const getFromCookies = (req) => {
   try {
+    console.log('=== getFromCookies START ===');
+    console.log('All cookies:', req.cookies);
+    console.log('All signed cookies:', req.signedCookies);
     if (!req || !req.signedCookies) {
       return createErrorResponse(
         new Error('Request object with signed cookies is required'),
@@ -112,6 +117,7 @@ const getFromCookies = (req) => {
     }
 
     const accessToken = req.signedCookies?.[COOKIE_NAMES.AUTH_TOKEN];
+    console.log('Access token from cookie (first 50 chars):', accessToken?.substring(0, 50));
     const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
     const displayInfoRaw = req.signedCookies?.[COOKIE_NAMES.USER_DISPLAY];
 
@@ -128,6 +134,9 @@ const getFromCookies = (req) => {
         validAccessToken = accessToken;
         accessTokenData = verifyResult.data;
       }
+      const decoded = JSON.parse(atob(accessToken.split('.')[1]));
+      console.log('Token exp timestamp:', decoded.exp);
+      console.log('Token expires at:', new Date(decoded.exp * 1000).toISOString());
     }
 
     let validRefreshToken = null;
