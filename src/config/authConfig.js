@@ -31,7 +31,8 @@ const cookieConfig = {
   auth_token: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.zeabur.app' : undefined,
     maxAge: 2 * 60 * 60 * 1000,
     path: '/',
     signed: true
@@ -39,7 +40,8 @@ const cookieConfig = {
   user_display: {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.zeabur.app' : undefined,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
     signed: true
@@ -47,7 +49,8 @@ const cookieConfig = {
   remember_me: {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    domain: process.env.NODE_ENV === 'production' ? '.zeabur.app' : undefined,
     maxAge: 7 * 24 * 60 * 60 * 1000,
     path: '/',
     signed: true
@@ -57,7 +60,8 @@ const cookieConfig = {
 const clearCookieConfig = {
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  domain: process.env.NODE_ENV === 'production' ? '.zeabur.app' : undefined,
   path: '/',
   signed: true,
   expires: new Date(0)
