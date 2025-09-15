@@ -4,91 +4,93 @@ import { corsOptions } from '../../config/cors.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
 import { verifyAccessToken } from '../auth/tokenService.js';
 import { db } from '../../config/db.js';
-import { messagesTable, chatRoomsTable, chatMembersTable, usersTable } from '../../models/schema.js';
+import { messagesTable, chatRoomsTable, chatMembersTable, usersTable } from '../../models/tables/tables.js';
 
-// 全域狀態管理
+// ========== 全域狀態管理 ==========
+// 追蹤所有連線的用戶
 const connectedUsers = new Map(); // userId -> { socketId, username, joinedAt }
+
+// 追蹤用戶加入的房間
 const userRooms = new Map(); // userId -> Set(roomIds)
-const roomUsers = new Map(); // roomId -> Set(userIds) 
+
+// 追蹤房間內的用戶
+const roomUsers = new Map(); // roomId -> Set(userIds)
+
+// 追蹤正在輸入的用戶
 const typingUsers = new Map(); // roomId -> Set(userIds)
 
-const createSocketCorsOptions = () => {
-  return {
-    origin: corsOptions.origin,
-    methods: corsOptions.methods,
-    allowedHeaders: corsOptions.allowedHeaders,
-    credentials: corsOptions.credentials
-  };
-};
-
+// ========== 主要初始化函數 ==========
 const initSocketService = (httpServer) => {
+  // 創建 Socket.IO 服務器
   const io = new Server(httpServer, {
-    cors: createSocketCorsOptions(),
+    cors: {
+      origin: corsOptions.origin,
+      methods: corsOptions.methods,
+      allowedHeaders: corsOptions.allowedHeaders,
+      credentials: corsOptions.credentials
+    },
     transports: ['websocket', 'polling'],
     pingTimeout: 60000,
     pingInterval: 25000
   });
 
-  setupSocketMiddleware(io);
-  setupSocketEvents(io);
+  // 設置認證中間件
+  setupAuthentication(io);
+  
+  // 設置事件處理
+  setupEventHandlers(io);
 
   return io;
 };
 
-const setupSocketMiddleware = (io) => {
+// ========== 認證中間件 ==========
+const setupAuthentication = (io) => {
   io.use(async (socket, next) => {
     try {
+      // 從連接握手中獲取 Token
       const token = socket.handshake.auth.token || socket.handshake.query.token;
 
       if (!token) {
-        return next(new Error(JSON.stringify(
-          createErrorResponse(null, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED)
-        )));
+        return next(new Error('缺少認證 Token'));
       }
 
+      // 驗證 Token
       const verifyResult = verifyAccessToken(token);
       if (!verifyResult.success) {
-        return next(new Error(JSON.stringify(
-          createErrorResponse(null, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED)
-        )));
+        return next(new Error('Token 驗證失敗'));
       }
 
+      // 檢查用戶狀態
       if (verifyResult.data.status !== 'active') {
-        return next(new Error(JSON.stringify(
-          createErrorResponse(null, ERROR_TYPES.AUTH.USER.ACCOUNT_STATUS_INVALID)
-        )));
+        return next(new Error('用戶帳號狀態異常'));
       }
 
-      // 設置 socket 用戶資訊
+      // 將用戶資訊附加到 socket 物件
       socket.userId = verifyResult.data.id;
       socket.username = verifyResult.data.username;
       socket.userRole = verifyResult.data.role;
 
-      next();
+      next(); // 認證成功，繼續連接
+      
     } catch (error) {
-      console.error('Socket authentication error:', error);
-      next(new Error(JSON.stringify(
-        createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED)
-      )));
+      console.error('Socket 認證錯誤:', error);
+      next(new Error('認證過程發生錯誤'));
     }
   });
 };
 
-const setupSocketEvents = (io) => {
+// ========== 事件處理設置 ==========
+const setupEventHandlers = (io) => {
   io.on('connection', (socket) => {
-    console.log(`User ${socket.username} (ID: ${socket.userId}) connected`);
+    console.log(`用戶 ${socket.username} (ID: ${socket.userId}) 已連線`);
 
-    // 記錄用戶連接
-    connectedUsers.set(socket.userId, {
-      socketId: socket.id,
-      username: socket.username,
-      joinedAt: new Date()
-    });
+    // 1. 記錄用戶連線
+    recordUserConnection(socket);
+    
+    // 2. 自動加入用戶的聊天室
+    autoJoinUserRooms(socket, io);
 
-    // 自動加入用戶的聊天室
-    joinUserRooms(socket, io);
-
-    // 事件處理
+    // 3. 設置各種事件監聽器
     socket.on('send_message', (data) => handleSendMessage(socket, io, data));
     socket.on('join_room', (data) => handleJoinRoom(socket, io, data));
     socket.on('leave_room', (data) => handleLeaveRoom(socket, io, data));
@@ -97,15 +99,26 @@ const setupSocketEvents = (io) => {
     socket.on('get_online_users', (data) => handleGetOnlineUsers(socket, data));
     socket.on('mark_messages_read', (data) => handleMarkMessagesRead(socket, data));
 
-    // 斷線處理
+    // 4. 處理斷線
     socket.on('disconnect', (reason) => {
       handleDisconnect(socket, io, reason);
     });
   });
 };
 
-const joinUserRooms = async (socket, io) => {
+// ========== 用戶連線管理 ==========
+const recordUserConnection = (socket) => {
+  // 記錄到全域狀態
+  connectedUsers.set(socket.userId, {
+    socketId: socket.id,
+    username: socket.username,
+    joinedAt: new Date()
+  });
+};
+
+const autoJoinUserRooms = async (socket, io) => {
   try {
+    // 從資料庫查詢用戶所屬的聊天室
     const userRoomsData = await db
       .select({
         roomId: chatMembersTable.roomId
@@ -115,10 +128,10 @@ const joinUserRooms = async (socket, io) => {
 
     const roomIds = new Set();
 
-    // 加入每個聊天室
+    // 讓用戶加入每個聊天室
     for (const room of userRoomsData) {
       const roomName = `room_${room.roomId}`;
-      socket.join(roomName);
+      socket.join(roomName); // Socket.IO 的加入房間功能
       roomIds.add(room.roomId);
 
       // 更新房間用戶列表
@@ -135,46 +148,43 @@ const joinUserRooms = async (socket, io) => {
       }));
     }
 
+    // 記錄用戶所屬房間
     userRooms.set(socket.userId, roomIds);
 
-    // 廣播用戶上線
+    // 廣播用戶上線消息
     socket.broadcast.emit('user_online', createSuccessResponse({
       userId: socket.userId,
       username: socket.username,
       onlineAt: new Date()
     }));
 
-    console.log(`User ${socket.username} joined ${roomIds.size} rooms`);
+    console.log(`用戶 ${socket.username} 加入了 ${roomIds.size} 個房間`);
+    
   } catch (error) {
-    console.error('Error joining user rooms:', error);
+    console.error('自動加入用戶房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
 
+// ========== 訊息處理 ==========
 const handleSendMessage = async (socket, io, data) => {
   try {
     const { roomId, content, messageType = 'text', replyToId = null } = data;
 
     // 驗證輸入
     if (!roomId || !content?.trim()) {
-      socket.emit('error', createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.MESSAGE.INVALID_PAGINATION
-      ));
+      socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MESSAGE.INVALID_PAGINATION));
       return;
     }
 
-    // 驗證房間成員資格
+    // 檢查用戶是否為房間成員
     const isMember = await verifyRoomMembership(socket.userId, roomId);
     if (!isMember) {
-      socket.emit('error', createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER
-      ));
+      socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
       return;
     }
 
-    // 儲存訊息到資料庫
+    // 將訊息儲存到資料庫
     const [newMessage] = await db
       .insert(messagesTable)
       .values({
@@ -192,7 +202,7 @@ const handleSendMessage = async (socket, io, data) => {
         replyToId: messagesTable.replyToId
       });
 
-    // 準備廣播的訊息資料
+    // 準備要廣播的訊息資料
     const messageData = {
       id: newMessage.id,
       roomId: parseInt(roomId),
@@ -210,33 +220,28 @@ const handleSendMessage = async (socket, io, data) => {
     // 更新房間最後訊息時間
     await updateRoomLastMessage(roomId);
 
-    console.log(`Message sent in room ${roomId} by ${socket.username}`);
+    console.log(`用戶 ${socket.username} 在房間 ${roomId} 發送了訊息`);
 
   } catch (error) {
-    console.error('Error handling send message:', error);
+    console.error('處理發送訊息時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED));
   }
 };
 
+// ========== 房間管理 ==========
 const handleJoinRoom = async (socket, io, data) => {
   try {
     const { roomId } = data;
 
     if (!roomId) {
-      socket.emit('error', createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.ROOM.INVALID_ROOM_ID
-      ));
+      socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.ROOM.INVALID_ROOM_ID));
       return;
     }
 
     // 驗證房間成員資格
     const isMember = await verifyRoomMembership(socket.userId, roomId);
     if (!isMember) {
-      socket.emit('error', createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER
-      ));
+      socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
       return;
     }
 
@@ -255,6 +260,7 @@ const handleJoinRoom = async (socket, io, data) => {
       getRoomMessages(roomId, 50)
     ]);
 
+    // 回傳房間資訊給用戶
     socket.emit('joined_room', createSuccessResponse({
       roomId,
       roomInfo,
@@ -269,10 +275,10 @@ const handleJoinRoom = async (socket, io, data) => {
       roomId
     }));
 
-    console.log(`User ${socket.username} joined room ${roomId}`);
+    console.log(`用戶 ${socket.username} 加入房間 ${roomId}`);
 
   } catch (error) {
-    console.error('Error handling join room:', error);
+    console.error('處理加入房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
@@ -282,10 +288,7 @@ const handleLeaveRoom = (socket, io, data) => {
     const { roomId } = data;
 
     if (!roomId) {
-      socket.emit('error', createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.ROOM.INVALID_ROOM_ID
-      ));
+      socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.ROOM.INVALID_ROOM_ID));
       return;
     }
 
@@ -315,14 +318,15 @@ const handleLeaveRoom = (socket, io, data) => {
       roomId
     }));
 
-    console.log(`User ${socket.username} left room ${roomId}`);
+    console.log(`用戶 ${socket.username} 離開房間 ${roomId}`);
 
   } catch (error) {
-    console.error('Error handling leave room:', error);
+    console.error('處理離開房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
 
+// ========== 輸入狀態管理 ==========
 const handleTypingStart = (socket, io, data) => {
   try {
     const { roomId } = data;
@@ -336,6 +340,7 @@ const handleTypingStart = (socket, io, data) => {
     }
     typingUsers.get(roomId).add(socket.userId);
 
+    // 通知房間內其他用戶
     socket.to(roomName).emit('user_typing', createSuccessResponse({
       userId: socket.userId,
       username: socket.username,
@@ -343,7 +348,7 @@ const handleTypingStart = (socket, io, data) => {
     }));
 
   } catch (error) {
-    console.error('Error handling typing start:', error);
+    console.error('處理開始輸入時發生錯誤:', error);
   }
 };
 
@@ -365,23 +370,24 @@ const handleTypingStop = (socket, io, data) => {
     }));
 
   } catch (error) {
-    console.error('Error handling typing stop:', error);
+    console.error('處理停止輸入時發生錯誤:', error);
   }
 };
 
+// ========== 線上用戶管理 ==========
 const handleGetOnlineUsers = (socket, data) => {
   try {
     const { roomId } = data;
     
     if (roomId) {
-      // 獲取特定房間的在線用戶
+      // 獲取特定房間的線上用戶
       const roomOnlineUsers = roomUsers.get(roomId) || new Set();
       socket.emit('online_users', createSuccessResponse({
         roomId,
         users: Array.from(roomOnlineUsers)
       }));
     } else {
-      // 獲取所有在線用戶
+      // 獲取所有線上用戶
       socket.emit('online_users', createSuccessResponse({
         totalOnline: connectedUsers.size,
         users: Array.from(connectedUsers.keys())
@@ -389,11 +395,12 @@ const handleGetOnlineUsers = (socket, data) => {
     }
 
   } catch (error) {
-    console.error('Error getting online users:', error);
+    console.error('獲取線上用戶時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.LIST.GET_ROOMS_FAILED));
   }
 };
 
+// ========== 訊息已讀狀態 ==========
 const handleMarkMessagesRead = async (socket, data) => {
   try {
     const { roomId, messageIds } = data;
@@ -415,12 +422,13 @@ const handleMarkMessagesRead = async (socket, data) => {
     }));
 
   } catch (error) {
-    console.error('Error marking messages as read:', error);
+    console.error('標記訊息為已讀時發生錯誤:', error);
   }
 };
 
+// ========== 斷線處理 ==========
 const handleDisconnect = (socket, io, reason) => {
-  console.log(`User ${socket.username} (ID: ${socket.userId}) disconnected: ${reason}`);
+  console.log(`用戶 ${socket.username} (ID: ${socket.userId}) 已斷線: ${reason}`);
 
   // 清理用戶狀態
   connectedUsers.delete(socket.userId);
@@ -459,7 +467,8 @@ const handleDisconnect = (socket, io, reason) => {
   }));
 };
 
-// 輔助函數
+// ========== 輔助函數 ==========
+// 驗證用戶是否為房間成員
 const verifyRoomMembership = async (userId, roomId) => {
   try {
     const [membership] = await db
@@ -473,11 +482,12 @@ const verifyRoomMembership = async (userId, roomId) => {
 
     return !!membership;
   } catch (error) {
-    console.error('Error verifying room membership:', error);
+    console.error('驗證房間成員資格時發生錯誤:', error);
     return false;
   }
 };
 
+// 獲取房間資訊
 const getRoomInfo = async (roomId) => {
   try {
     const [roomInfo] = await db
@@ -496,11 +506,12 @@ const getRoomInfo = async (roomId) => {
 
     return roomInfo || null;
   } catch (error) {
-    console.error('Error getting room info:', error);
+    console.error('獲取房間資訊時發生錯誤:', error);
     return null;
   }
 };
 
+// 獲取房間訊息
 const getRoomMessages = async (roomId, limit = 50) => {
   try {
     const messages = await db
@@ -522,13 +533,14 @@ const getRoomMessages = async (roomId, limit = 50) => {
       .orderBy(desc(messagesTable.createdAt))
       .limit(limit);
 
-    return messages.reverse();
+    return messages.reverse(); // 反轉以顯示最舊的訊息在前
   } catch (error) {
-    console.error('Error getting room messages:', error);
+    console.error('獲取房間訊息時發生錯誤:', error);
     return [];
   }
 };
 
+// 更新房間最後訊息時間
 const updateRoomLastMessage = async (roomId) => {
   try {
     await db
@@ -539,11 +551,12 @@ const updateRoomLastMessage = async (roomId) => {
       })
       .where(eq(chatRoomsTable.id, roomId));
   } catch (error) {
-    console.error('Error updating room last message:', error);
+    console.error('更新房間最後訊息時間時發生錯誤:', error);
   }
 };
 
-// 對外 API
+// ========== 對外 API ==========
+// 發送通知給特定用戶
 const sendNotificationToUser = (io, userId, notification) => {
   const user = connectedUsers.get(userId);
   if (user) {
@@ -551,22 +564,27 @@ const sendNotificationToUser = (io, userId, notification) => {
   }
 };
 
+// 發送訊息到特定房間
 const sendMessageToRoom = (io, roomId, event, data) => {
   io.to(`room_${roomId}`).emit(event, createSuccessResponse(data));
 };
 
+// 廣播給所有用戶
 const broadcastToAll = (io, event, data) => {
   io.emit(event, createSuccessResponse(data));
 };
 
+// 獲取線上用戶數量
 const getOnlineUsersCount = () => {
   return connectedUsers.size;
 };
 
+// 獲取房間線上用戶
 const getRoomOnlineUsers = (roomId) => {
   return Array.from(roomUsers.get(roomId) || []);
 };
 
+// 檢查用戶是否線上
 const isUserOnline = (userId) => {
   return connectedUsers.has(userId);
 };
