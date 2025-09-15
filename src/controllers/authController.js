@@ -129,6 +129,9 @@ const login = async (req, res) => {
       return res.status(400).json(result);
     }
 
+    console.log('About to call setAuthCookies with user:', userForLogin.id);
+    console.log('RememberMe option:', rememberMe);
+
     const cookieResult = setAuthCookies(res, userForLogin, { 
     rememberMe 
   });

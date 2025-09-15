@@ -35,19 +35,34 @@ const generateRefreshToken = (user) => {
 };
 
 const generateTokenPair = (user) => {
+  console.log('=== generateTokenPair START ===');
+  console.log('User for token generation:', { id: user?.id, email: user?.email });
+  
   try {
+    console.log('Generating access token...');
     const accessResult = generateAccessToken(user);
+    console.log('Access token generation success:', accessResult.success);
+    if (!accessResult.success) {
+      console.log('Access token error:', accessResult);
+    }
+    
+    console.log('Generating refresh token...');
     const refreshResult = generateRefreshToken(user);
+    console.log('Refresh token generation success:', refreshResult.success);
+    if (!refreshResult.success) {
+      console.log('Refresh token error:', refreshResult);
+    }
 
     if (!accessResult.success) return accessResult;
     if (!refreshResult.success) return refreshResult;
 
+    console.log('=== generateTokenPair SUCCESS ===');
     return createSuccessResponse({ 
       accessToken: accessResult.data, 
       refreshToken: refreshResult.data 
     }, '生成 tokenPair 成功');
   } catch (error) {
-    console.error('Error generating token pair:', error);
+    console.error('=== generateTokenPair ERROR ===', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_TOKEN_PAIR_ERROR);
   }
 };

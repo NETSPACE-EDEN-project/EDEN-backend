@@ -4,8 +4,13 @@ import { buildDisplayInfo } from '../../utils/tokenUtils.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
 
 const setAuthCookies = (res, user, options = {}) => {
+  console.log('=== setAuthCookies START ===');
+  console.log('User ID:', user?.id);
+  console.log('Options:', options);
+  
   try {
     if (!res || !user) {
+      console.log('Missing res or user - returning error');
       return createErrorResponse(
         new Error('Response object and user are required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -19,40 +24,60 @@ const setAuthCookies = (res, user, options = {}) => {
       updateDisplayInfo = true
     } = options;
 
+    console.log('Processed options:', { rememberMe, updateAccessToken, updateRefreshToken, updateDisplayInfo });
+
     let accessToken = null;
     let refreshToken = null;
 
     if (updateAccessToken || (updateRefreshToken && rememberMe)) {
+      console.log('Calling generateTokenPair...');
       const tokenResult = generateTokenPair(user);
+      console.log('generateTokenPair result success:', tokenResult.success);
+      
       if (!tokenResult.success) {
+        console.log('generateTokenPair failed:', tokenResult);
         return tokenResult;
       }
       
       const tokens = tokenResult.data;
       accessToken = tokens.accessToken;
       refreshToken = tokens.refreshToken;
+      console.log('Tokens generated - accessToken exists:', !!accessToken, 'refreshToken exists:', !!refreshToken);
     }
 
     if (updateAccessToken && accessToken) {
+      console.log('Setting auth token cookie');
+      console.log('Cookie config:', cookieConfig.auth_token);
       res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
+      console.log('Auth token cookie set');
+    } else {
+      console.log('Auth token NOT set - updateAccessToken:', updateAccessToken, 'accessToken exists:', !!accessToken);
     }
 
     if (updateRefreshToken && rememberMe && refreshToken) {
+      console.log('Setting refresh token cookie');
       res.cookie(COOKIE_NAMES.REMEMBER_ME, refreshToken, cookieConfig.remember_me);
+      console.log('Refresh token cookie set');
+    } else {
+      console.log('Refresh token NOT set - updateRefreshToken:', updateRefreshToken, 'rememberMe:', rememberMe, 'refreshToken exists:', !!refreshToken);
     }
 
     if (updateDisplayInfo) {
+      console.log('Setting display info cookie');
       const displayInfo = buildDisplayInfo(user);
+      console.log('Display info:', displayInfo);
       res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
+      console.log('Display info cookie set');
     }
 
+    console.log('=== setAuthCookies SUCCESS ===');
     return createSuccessResponse({ 
       accessToken, 
       refreshToken: (updateRefreshToken && rememberMe) ? refreshToken : null,
       displayInfo: updateDisplayInfo ? buildDisplayInfo(user) : null
     });
   } catch (error) {
-    console.error('Error setting auth cookies:', error);
+    console.error('=== setAuthCookies ERROR ===', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.COOKIE.COOKIE_ERROR);
   }
 };
