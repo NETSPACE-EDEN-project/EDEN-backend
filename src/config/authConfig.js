@@ -13,7 +13,7 @@ if (!JWT_SECRET || !REFRESH_SECRET) {
 const JWT_CONFIG = {
   access: {
     secret: JWT_SECRET,
-    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '15m'
+    expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN || '2h'
   },
   refresh: {
     secret: REFRESH_SECRET,
