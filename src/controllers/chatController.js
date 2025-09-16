@@ -14,14 +14,21 @@ const getChatList = async (req, res) => {
         roomName: chatRoomsTable.roomName,
         roomType: chatRoomsTable.roomType,
         lastMessageAt: chatRoomsTable.lastMessageAt,
+        lastMessage: sql`
+          (SELECT content FROM ${messagesTable} 
+            WHERE room_id = ${chatRoomsTable.id} 
+            AND is_deleted = false 
+            ORDER BY created_at DESC 
+            LIMIT 1)
+          `.as('lastMessage'),
         unreadCount: sql`
           COALESCE(
             (SELECT COUNT(*) 
-             FROM ${messagesTable} m 
-             WHERE m.room_id = ${chatRoomsTable.id} 
-             AND m.created_at > COALESCE(${chatMembersTable.lastReadAt}, '1970-01-01')
-             AND m.sender_id != ${userId}
-             AND m.is_deleted = false
+              FROM ${messagesTable} m 
+              WHERE m.room_id = ${chatRoomsTable.id} 
+              AND m.created_at > COALESCE(${chatMembersTable.lastReadAt}, '1970-01-01')
+              AND m.sender_id != ${userId}
+              AND m.is_deleted = false
             ), 0
           )`.mapWith(Number)
       })
