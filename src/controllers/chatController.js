@@ -51,6 +51,8 @@ const startPrivateChat = async (req, res) => {
     const userId = req.user.id;
     const { targetUserId } = req.body;
 
+    console.log('Starting private chat:', { userId, targetUserId });
+
     if (!targetUserId || targetUserId === userId) {
       return res.status(400).json(createErrorResponse(
         null, 
@@ -72,47 +74,58 @@ const startPrivateChat = async (req, res) => {
       ));
     }
 
-    // 檢查是否已存在私人聊天室
-    const existingRooms = await db
+    console.log('Target user found:', targetUser);
+
+    const existingRoomQuery = await db
       .select({
         roomId: chatRoomsTable.id,
         roomName: chatRoomsTable.roomName
       })
       .from(chatRoomsTable)
-      .innerJoin(chatMembersTable, eq(chatRoomsTable.id, chatMembersTable.roomId))
       .where(and(
         eq(chatRoomsTable.roomType, 'private'),
-        or(
-          eq(chatMembersTable.userId, userId),
-          eq(chatMembersTable.userId, targetUserId)
-        )
-      ));
+        sql`EXISTS (
+          SELECT 1 FROM ${chatMembersTable} m1 
+          WHERE m1.room_id = ${chatRoomsTable.id} 
+          AND m1.user_id = ${userId}
+        )`,
+        sql`EXISTS (
+          SELECT 1 FROM ${chatMembersTable} m2 
+          WHERE m2.room_id = ${chatRoomsTable.id} 
+          AND m2.user_id = ${targetUserId}
+        )`,
+        sql`(
+          SELECT COUNT(*) FROM ${chatMembersTable} m3 
+          WHERE m3.room_id = ${chatRoomsTable.id}
+        ) = 2`
+      ))
+      .limit(1);
 
-    // 找到同時包含兩個用戶的房間
-    const roomCounts = {};
-    existingRooms.forEach(room => {
-      roomCounts[room.roomId] = (roomCounts[room.roomId] || 0) + 1;
-    });
+    console.log('Existing room query result:', existingRoomQuery);
 
-    const existingRoom = existingRooms.find(room => roomCounts[room.roomId] === 2);
-
-    if (existingRoom) {
+    if (existingRoomQuery.length > 0) {
+      const existingRoom = existingRoomQuery[0];
       return res.json(createSuccessResponse({
         roomId: existingRoom.roomId,
-        roomName: existingRoom.roomName
+        roomName: existingRoom.roomName,
+        isNew: false
       }, '私人聊天室已存在'));
     }
 
     // 創建新聊天室
     const result = await db.transaction(async (tx) => {
+      console.log('Creating new room...');
+      
       const [newRoom] = await tx
         .insert(chatRoomsTable)
         .values({
-          roomName: `與${targetUser.username}的聊天室`,
+          roomName: `${targetUser.username}`,
           roomType: 'private',
           createdBy: userId
         })
         .returning();
+
+      console.log('New room created:', newRoom); 
 
       await tx
         .insert(chatMembersTable)
@@ -121,16 +134,20 @@ const startPrivateChat = async (req, res) => {
           { roomId: newRoom.id, userId: targetUserId, role: 'member' }
         ]);
 
+      console.log('Members added to room');
+
       return newRoom;
     });
 
     res.status(201).json(createSuccessResponse({
       roomId: result.id,
-      roomName: result.roomName
+      roomName: result.roomName,
+      isNew: true
     }, '私人聊天室創建成功'));
 
   } catch (error) {
     console.error('Error starting private chat:', error);
+    console.error('Error stack:', error.stack);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
   }
 };
