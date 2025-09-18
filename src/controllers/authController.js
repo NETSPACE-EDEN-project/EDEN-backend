@@ -2,15 +2,15 @@ import bcrypt from 'bcrypt';
 import { eq } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { usersTable, emailTable } from '../models/schema.js';
-import { 
-  loginUserService, 
-  logoutUserService, 
-  refreshTokenService,
-  loginWithProviderService
-} from '../services/auth/authService.js';
+import { loginUserService, logoutUserService, refreshTokenService, loginWithProviderService } from '../services/auth/authService.js';
+import { sendMailService, generateToken, buildUrl, contentTemplate } from '../services/emailService.js';
 import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { COOKIE_NAMES } from '../config/authConfig.js';
+
+const createExpirationTime = (hours = 24) => {
+  return new Date(Date.now() + hours * 60 * 60 * 1000);
+};
 
 const register = async (req, res) => {
   try {
@@ -39,14 +39,29 @@ const register = async (req, res) => {
       }).returning();
 
       const hashedPassword = await bcrypt.hash(password, 10);
+      const verificationToken = generateToken();
+      
       const [emailUser] = await tx.insert(emailTable).values({
         userId: newUser.id,
         email,
         password: hashedPassword,
-        emailVerificationToken: null
+        emailVerificationToken: verificationToken,
+        emailVerificationExpires: createExpirationTime(24),
+        lastVerificationEmailSent: new Date()
       }).returning();
 
-      return { user: newUser, emailUser };
+      return { user: newUser, emailUser, verificationToken };
+    });
+
+    const verificationUrl = buildUrl('verify-email', result.verificationToken);
+    const theme = `
+      <h2>哈囉 ${username}！</h2>
+      <p>感謝您註冊我們的服務！請點擊下方按鈕來驗證您的信箱：</p>
+    `;
+    const content = contentTemplate('信箱驗證', theme, '驗證信箱', verificationUrl);
+    
+    sendMailService(email, '信箱驗證', content).catch(error => {
+      console.error('驗證郵件發送失敗:', error);
     });
 
     return res.status(201).json(createSuccessResponse({
@@ -310,4 +325,173 @@ const verifyAuthStatus = async (req, res) => {
   }
 };
 
-export { register, login, logout, refreshToken, getCurrentUserHandler, loginWithProvider, verifyAuthStatus };
+const sendVerificationEmail = async (req, res) => {
+  try {
+    const { email } = req.validatedData;
+    if (!email) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
+      ));
+    }
+
+    const [userWithEmail] = await db.select({
+      id: usersTable.id,
+      username: usersTable.username,
+      email: emailTable.email,
+      isVerifiedEmail: emailTable.isVerifiedEmail,
+      lastVerificationEmailSent: emailTable.lastVerificationEmailSent
+    })
+    .from(usersTable)
+    .innerJoin(emailTable, eq(usersTable.id, emailTable.userId))
+    .where(eq(emailTable.email, email))
+    .limit(1);
+
+    if (!userWithEmail) {
+      return res.status(404).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.USER_NOT_FOUND
+      ));
+    }
+
+    if (userWithEmail.isVerifiedEmail) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_VERIFIED
+      ));
+    }
+
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    if (userWithEmail.lastVerificationEmailSent && userWithEmail.lastVerificationEmailSent > fiveMinutesAgo) {
+      return res.status(429).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.TOO_MANY_REQUESTS
+      ));
+    }
+
+    const newToken = generateToken();
+
+    await db.transaction(async (tx) => {
+
+      await tx.update(emailTable)
+        .set({ 
+          emailVerificationToken: newToken,
+          emailVerificationExpires: createExpirationTime(24),
+          lastVerificationEmailSent: new Date()
+        })
+        .where(eq(emailTable.userId, userWithEmail.id));
+
+      const verificationUrl = buildUrl('verify-email', newToken);
+      const theme = `
+        <h2>哈囉 ${userWithEmail.username}！</h2>
+        <p>我們已為您重新發送驗證郵件。請點擊下方按鈕來驗證您的信箱：</p>
+      `;
+      const content = contentTemplate('信箱驗證', theme, '驗證信箱', verificationUrl);
+      
+      const emailResult = await sendMailService(email, '信箱驗證', content);
+      
+      if (!emailResult.success) {
+        throw new Error('郵件發送失敗');
+      }
+    });
+
+    return res.status(200).json(createSuccessResponse(
+      null,
+      '驗證郵件已重新發送，請檢查您的信箱'
+    ));
+
+  } catch (error) {
+    console.error('Send verification email error:', error);
+    return res.status(500).json(createErrorResponse(
+      error,
+      ERROR_TYPES.AUTH.TOKEN.EMAIL_SEND_FAILED
+    ));
+  }
+};
+
+const verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
+      ));
+    }
+
+    const [userWithEmail] = await db.select({
+      id: usersTable.id,
+      username: usersTable.username,
+      email: emailTable.email,
+      isVerifiedEmail: emailTable.isVerifiedEmail,
+      emailVerificationExpires: emailTable.emailVerificationExpires
+    })
+    .from(usersTable)
+    .innerJoin(emailTable, eq(usersTable.id, emailTable.userId))
+    .where(eq(emailTable.emailVerificationToken, token))
+    .limit(1);
+
+    if (!userWithEmail) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.INVALID_TOKEN
+      ));
+    }
+
+    if (userWithEmail.isVerifiedEmail) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_VERIFIED
+      ));
+    }
+
+    if (userWithEmail.emailVerificationExpires && 
+        new Date() > userWithEmail.emailVerificationExpires) {
+      return res.status(400).json(createErrorResponse(
+        null,
+        ERROR_TYPES.AUTH.TOKEN.TOKEN_EXPIRED
+      ));
+    }
+
+    await db.update(emailTable)
+      .set({ 
+        isVerifiedEmail: true, 
+        emailVerificationToken: null,
+        emailVerificationExpires: null,
+        lastVerificationEmailSent: null
+      })
+      .where(eq(emailTable.userId, userWithEmail.id));
+
+    return res.status(200).json(createSuccessResponse(
+      { 
+        user: {
+          id: userWithEmail.id,
+          username: userWithEmail.username,
+          email: userWithEmail.email,
+          isVerifiedEmail: true
+        }
+      },
+      '信箱驗證成功！'
+    ));
+
+  } catch (error) {
+    console.error('Verify email error:', error);
+    return res.status(500).json(createErrorResponse(
+      error,
+      ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED
+    ));
+  }
+};
+
+export { 
+  register, 
+  login, 
+  logout, 
+  refreshToken, 
+  getCurrentUserHandler, 
+  loginWithProvider, 
+  verifyAuthStatus,
+  sendVerificationEmail,
+  verifyEmail
+};

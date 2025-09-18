@@ -22,16 +22,25 @@ const registerSchema = z.object({
   phone: z.string()
     .max(20, '電話號碼不能超過20個字符')
     .regex(/^[\d\-\+\(\)\s]*$/, '電話號碼格式不正確')
-    .optional(),
+    .optional()
+    .or(z.literal('')),
   birthday: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, '生日格式必須為 YYYY-MM-DD')
     .optional()
+    .or(z.literal(''))
 }).refine(data => data.password === data.confirmPassword, {
   message: '確認密碼不一致',
   path: ['confirmPassword']
 });
 
 const forgotPasswordSchema = z.object({
+  email: z.string()
+    .min(1, 'Email 不能為空')
+    .email('Email 格式不正確')
+    .max(100, 'Email 長度不可超過 100 個字元')
+});
+
+const sendEmailSchema = z.object({
   email: z.string()
     .min(1, 'Email 不能為空')
     .email('Email 格式不正確')
@@ -48,5 +57,6 @@ export {
   loginSchema,
   registerSchema,
   forgotPasswordSchema,
-  resetPasswordSchema
+  resetPasswordSchema,
+  sendEmailSchema
 };
