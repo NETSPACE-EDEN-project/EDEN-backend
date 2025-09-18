@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { usersTable, emailTable } from '../models/schema.js';
 import { loginUserService, logoutUserService, refreshTokenService, loginWithProviderService } from '../services/auth/authService.js';
-import { sendMailService, generateToken, buildUrl, contentTemplate } from '../services/emailService.js';
+import { sendMailService, generateToken, buildUrl, contentTemplate } from '../services/auth/emailService.js';
 import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { COOKIE_NAMES } from '../config/authConfig.js';
