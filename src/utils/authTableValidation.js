@@ -53,10 +53,18 @@ const resetPasswordSchema = z.object({
     .max(128, '密碼不可超過 128 個字元')
 });
 
+const verifyEmailSchema = z.object({
+  token: z.string()
+    .min(1, 'Token 不能為空')
+    .length(64, 'Token 格式不正確')
+    .regex(/^[a-f0-9]{64}$/, 'Token 必須是64位的十六進制字符')
+});
+
 export {
   loginSchema,
   registerSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  sendEmailSchema
+  sendEmailSchema,
+  verifyEmailSchema
 };

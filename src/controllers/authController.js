@@ -391,10 +391,7 @@ const sendVerificationEmail = async (req, res) => {
       const emailResult = await sendMailService(email, '信箱驗證', content);
       
       if (!emailResult.success) {
-        return res.status(500).json(createErrorResponse(
-          null,
-          ERROR_TYPES.AUTH.TOKEN.EMAIL_SEND_FAILED
-        ));
+        throw new Error('郵件發送失敗');
       }
     });
 
@@ -414,7 +411,7 @@ const sendVerificationEmail = async (req, res) => {
 
 const verifyEmail = async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token } = req.validatedData;
 
     if (!token) {
       return res.status(400).json(createErrorResponse(
