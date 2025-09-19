@@ -14,7 +14,7 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log('CORS check - Origin:', origin); // 添加日誌查看問題
+    console.log('CORS check - Origin:', origin);
     
     // 允許沒有 origin 的請求
     if (!origin) {
@@ -56,4 +56,4 @@ const corsOptions = {
   ]
 };
 
-export { corsOptions };
+export { corsOptions, allowedOrigins };

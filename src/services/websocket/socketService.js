@@ -1,10 +1,15 @@
 import { Server } from 'socket.io';
 import { eq, and, desc } from 'drizzle-orm';
-import { corsOptions } from '../../config/cors.js';
+import cookie from 'cookie'
+import cookieParser from 'cookie-parser';
+import dotenv from 'dotenv';
+import { corsOptions, allowedOrigins } from '../../config/cors.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
 import { verifyAccessToken } from '../auth/tokenService.js';
 import { db } from '../../config/db.js';
 import { messagesTable, chatRoomsTable, chatMembersTable, usersTable } from '../../models/tables/tables.js';
+
+dotenv.config();
 
 // ========== 全域狀態管理 ==========
 // 追蹤所有連線的用戶
@@ -21,13 +26,12 @@ const typingUsers = new Map(); // roomId -> Set(userIds)
 
 // ========== 主要初始化函數 ==========
 const initSocketService = (httpServer) => {
-  // 創建 Socket.IO 服務器
   const io = new Server(httpServer, {
     cors: {
-      origin: corsOptions.origin,
+      origin: allowedOrigins,
       methods: corsOptions.methods,
       allowedHeaders: corsOptions.allowedHeaders,
-      credentials: corsOptions.credentials
+      credentials: true
     },
     transports: ['websocket', 'polling'],
     pingTimeout: 60000,
@@ -36,7 +40,7 @@ const initSocketService = (httpServer) => {
 
   // 設置認證中間件
   setupAuthentication(io);
-  
+
   // 設置事件處理
   setupEventHandlers(io);
 
@@ -47,31 +51,28 @@ const initSocketService = (httpServer) => {
 const setupAuthentication = (io) => {
   io.use(async (socket, next) => {
     try {
-      // 從連接握手中獲取 Token
-      const token = socket.handshake.auth.token || socket.handshake.query.token;
+      const cookieHeader = socket.handshake.headers.cookie;
+      
+      if (!cookieHeader) return next(new Error('缺少 cookie'));
 
-      if (!token) {
-        return next(new Error('缺少認證 Token'));
-      }
+      // 解析 cookies
+      const parsed = cookie.parse(cookieHeader);
+      
+      const secret = process.env.COOKIE_SECRET;
+      const signedCookies = cookieParser.signedCookies(parsed, secret);
+      
+      const token = signedCookies['auth_token'];
 
-      // 驗證 Token
+      if (!token) return next(new Error('缺少 token 或簽名錯誤'));
+
       const verifyResult = verifyAccessToken(token);
-      if (!verifyResult.success) {
-        return next(new Error('Token 驗證失敗'));
-      }
+      if (!verifyResult.success) return next(new Error('Token 驗證失敗'));
 
-      // 檢查用戶狀態
-      if (verifyResult.data.status !== 'active') {
-        return next(new Error('用戶帳號狀態異常'));
-      }
-
-      // 將用戶資訊附加到 socket 物件
       socket.userId = verifyResult.data.id;
       socket.username = verifyResult.data.username;
       socket.userRole = verifyResult.data.role;
 
-      next(); // 認證成功，繼續連接
-      
+      next();
     } catch (error) {
       console.error('Socket 認證錯誤:', error);
       next(new Error('認證過程發生錯誤'));
