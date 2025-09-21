@@ -1,9 +1,9 @@
-import { eq, and, desc, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, sql } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { chatRoomsTable, chatMembersTable, messagesTable, usersTable } from '../models/schema.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
-// 獲取聊天室列表
+// ==================== 取得聊天列表 ====================
 const getChatList = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -16,19 +16,17 @@ const getChatList = async (req, res) => {
         lastMessageAt: chatRoomsTable.lastMessageAt,
         lastMessage: sql`
           (SELECT content FROM ${messagesTable} 
-            WHERE room_id = ${chatRoomsTable.id} 
-            AND is_deleted = false 
-            ORDER BY created_at DESC 
-            LIMIT 1)
-          `.as('lastMessage'),
+            WHERE room_id = ${chatRoomsTable.id} AND is_deleted = false 
+            ORDER BY created_at DESC LIMIT 1)
+        `.as('lastMessage'),
         unreadCount: sql`
           COALESCE(
             (SELECT COUNT(*) 
               FROM ${messagesTable} m 
               WHERE m.room_id = ${chatRoomsTable.id} 
-              AND m.created_at > COALESCE(${chatMembersTable.lastReadAt}, '1970-01-01')
-              AND m.sender_id != ${userId}
-              AND m.is_deleted = false
+                AND m.created_at > COALESCE(${chatMembersTable.lastReadAt}, '1970-01-01') 
+                AND m.sender_id != ${userId} 
+                AND m.is_deleted = false
             ), 0
           )`.mapWith(Number)
       })
@@ -45,22 +43,16 @@ const getChatList = async (req, res) => {
   }
 };
 
-// 開始私人聊天
+// ==================== 開始私人聊天 ====================
 const startPrivateChat = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { targetUserId } = req.body;
+    const { targetUserId } = req.validatedData;
 
-    console.log('Starting private chat:', { userId, targetUserId });
-
-    if (!targetUserId || targetUserId === userId) {
-      return res.status(400).json(createErrorResponse(
-        null, 
-        { code: 'InvalidTargetUser', message: '無效的聊天對象' }
-      ));
+    if (targetUserId === userId) {
+      return res.status(400).json(createErrorResponse(null, ERROR_TYPES.CHAT.ROOM.INVALID_MEMBER_IDS));
     }
 
-    // 檢查目標用戶
     const [targetUser] = await db
       .select({ id: usersTable.id, username: usersTable.username })
       .from(usersTable)
@@ -68,43 +60,21 @@ const startPrivateChat = async (req, res) => {
       .limit(1);
 
     if (!targetUser) {
-      return res.status(404).json(createErrorResponse(
-        null, 
-        { code: 'UserNotFound', message: '用戶不存在' }
-      ));
+      return res.status(404).json(createErrorResponse(null, ERROR_TYPES.AUTH.USER.USER_NOT_FOUND));
     }
 
-    console.log('Target user found:', targetUser);
-
-    const existingRoomQuery = await db
-      .select({
-        roomId: chatRoomsTable.id,
-        roomName: chatRoomsTable.roomName
-      })
+    const [existingRoom] = await db
+      .select({ roomId: chatRoomsTable.id, roomName: chatRoomsTable.roomName })
       .from(chatRoomsTable)
       .where(and(
         eq(chatRoomsTable.roomType, 'private'),
-        sql`EXISTS (
-          SELECT 1 FROM ${chatMembersTable} m1 
-          WHERE m1.room_id = ${chatRoomsTable.id} 
-          AND m1.user_id = ${userId}
-        )`,
-        sql`EXISTS (
-          SELECT 1 FROM ${chatMembersTable} m2 
-          WHERE m2.room_id = ${chatRoomsTable.id} 
-          AND m2.user_id = ${targetUserId}
-        )`,
-        sql`(
-          SELECT COUNT(*) FROM ${chatMembersTable} m3 
-          WHERE m3.room_id = ${chatRoomsTable.id}
-        ) = 2`
+        sql`EXISTS (SELECT 1 FROM ${chatMembersTable} m1 WHERE m1.room_id = ${chatRoomsTable.id} AND m1.user_id = ${userId})`,
+        sql`EXISTS (SELECT 1 FROM ${chatMembersTable} m2 WHERE m2.room_id = ${chatRoomsTable.id} AND m2.user_id = ${targetUserId})`,
+        sql`(SELECT COUNT(*) FROM ${chatMembersTable} m3 WHERE m3.room_id = ${chatRoomsTable.id}) = 2`
       ))
       .limit(1);
 
-    console.log('Existing room query result:', existingRoomQuery);
-
-    if (existingRoomQuery.length > 0) {
-      const existingRoom = existingRoomQuery[0];
+    if (existingRoom) {
       return res.json(createSuccessResponse({
         roomId: existingRoom.roomId,
         roomName: existingRoom.roomName,
@@ -112,97 +82,50 @@ const startPrivateChat = async (req, res) => {
       }, '私人聊天室已存在'));
     }
 
-    // 創建新聊天室
-    const result = await db.transaction(async (tx) => {
-      console.log('Creating new room...');
-      
-      const [newRoom] = await tx
-        .insert(chatRoomsTable)
-        .values({
-          roomName: `${targetUser.username}`,
-          roomType: 'private',
-          createdBy: userId
-        })
-        .returning();
+    const newRoom = await db.transaction(async (tx) => {
+      const [room] = await tx.insert(chatRoomsTable).values({
+        roomName: targetUser.username,
+        roomType: 'private',
+        createdBy: userId
+      }).returning();
 
-      console.log('New room created:', newRoom); 
+      await tx.insert(chatMembersTable).values([
+        { roomId: room.id, userId, role: 'member' },
+        { roomId: room.id, userId: targetUserId, role: 'member' }
+      ]);
 
-      await tx
-        .insert(chatMembersTable)
-        .values([
-          { roomId: newRoom.id, userId: userId, role: 'member' },
-          { roomId: newRoom.id, userId: targetUserId, role: 'member' }
-        ]);
-
-      console.log('Members added to room');
-
-      return newRoom;
+      return room;
     });
 
     res.status(201).json(createSuccessResponse({
-      roomId: result.id,
-      roomName: result.roomName,
+      roomId: newRoom.id,
+      roomName: newRoom.roomName,
       isNew: true
     }, '私人聊天室創建成功'));
 
   } catch (error) {
     console.error('Error starting private chat:', error);
-    console.error('Error stack:', error.stack);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
   }
 };
 
-// 創建群組聊天
+// ==================== 創建群組聊天室 ====================
 const createGroupChat = async (req, res) => {
   try {
     const userId = req.user.id;
-    const { groupName, memberIds = [] } = req.body;
+    const { groupName, memberIds } = req.validatedData;
 
-    if (!groupName?.trim()) {
-      return res.status(400).json(createErrorResponse(
-        null, 
-        { code: 'InvalidGroupName', message: '群組名稱不能為空' }
-      ));
-    }
-
-    // 驗證成員存在
-    if (memberIds.length > 0) {
-      const validMembers = await db
-        .select({ id: usersTable.id })
-        .from(usersTable)
-        .where(inArray(usersTable.id, memberIds));
-
-      if (validMembers.length !== memberIds.length) {
-        return res.status(400).json(createErrorResponse(
-          null,
-          { code: 'InvalidMembers', message: '部分成員不存在' }
-        ));
-      }
-    }
-
-    // 創建群組
     const result = await db.transaction(async (tx) => {
-      const [newGroup] = await tx
-        .insert(chatRoomsTable)
-        .values({
-          roomName: groupName.trim(),
-          roomType: 'group',
-          createdBy: userId
-        })
-        .returning();
+      const [newGroup] = await tx.insert(chatRoomsTable).values({
+        roomName: groupName.trim(),
+        roomType: 'group',
+        createdBy: userId
+      }).returning();
 
-      const memberData = [{ roomId: newGroup.id, userId: userId, role: 'admin' }];
-      
-      if (memberIds.length > 0) {
-        const otherMembers = memberIds
-          .filter(id => id !== userId)
-          .map(memberId => ({
-            roomId: newGroup.id,
-            userId: memberId,
-            role: 'member'
-          }));
-        memberData.push(...otherMembers);
-      }
+      const memberData = [{ roomId: newGroup.id, userId, role: 'admin' }];
+      memberIds.filter(id => id !== userId).forEach(id => {
+        memberData.push({ roomId: newGroup.id, userId: id, role: 'member' });
+      });
 
       await tx.insert(chatMembersTable).values(memberData);
       return newGroup;
@@ -211,7 +134,7 @@ const createGroupChat = async (req, res) => {
     res.status(201).json(createSuccessResponse({
       roomId: result.id,
       roomName: result.roomName
-    }, '群組聊天創建成功'));
+    }, '群組聊天室創建成功'));
 
   } catch (error) {
     console.error('Error creating group chat:', error);
@@ -219,33 +142,23 @@ const createGroupChat = async (req, res) => {
   }
 };
 
-// 獲取訊息
+// ==================== 取得訊息 ====================
 const getMessages = async (req, res) => {
   try {
     const userId = req.user.id;
     const { roomId } = req.params;
     const { page = 1, limit = 50 } = req.query;
 
-    // 檢查成員資格
     const [membership] = await db
       .select()
       .from(chatMembersTable)
-      .where(and(
-        eq(chatMembersTable.userId, userId),
-        eq(chatMembersTable.roomId, roomId)
-      ))
+      .where(and(eq(chatMembersTable.userId, userId), eq(chatMembersTable.roomId, roomId)))
       .limit(1);
 
-    if (!membership) {
-      return res.status(403).json(createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER
-      ));
-    }
+    if (!membership) return res.status(403).json(createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
 
-    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const offset = (page - 1) * limit;
 
-    // 獲取訊息
     const messages = await db
       .select({
         id: messagesTable.id,
@@ -256,42 +169,21 @@ const getMessages = async (req, res) => {
       })
       .from(messagesTable)
       .leftJoin(usersTable, eq(messagesTable.senderId, usersTable.id))
-      .where(and(
-        eq(messagesTable.roomId, roomId),
-        eq(messagesTable.isDeleted, false)
-      ))
+      .where(and(eq(messagesTable.roomId, roomId), eq(messagesTable.isDeleted, false)))
       .orderBy(desc(messagesTable.createdAt))
-      .limit(parseInt(limit))
-      .offset(offset);
+      .limit(Number(limit))
+      .offset(Number(offset));
 
-    // 獲取總數
-    const [{ total }] = await db
-      .select({ 
-        total: sql`count(*)`.mapWith(Number)
-      })
+    const [{ total }] = await db.select({ total: sql`count(*)`.mapWith(Number) })
       .from(messagesTable)
-      .where(and(
-        eq(messagesTable.roomId, roomId),
-        eq(messagesTable.isDeleted, false)
-      ));
+      .where(and(eq(messagesTable.roomId, roomId), eq(messagesTable.isDeleted, false)));
 
-    // 更新已讀狀態
-    await db
-      .update(chatMembersTable)
-      .set({ lastReadAt: new Date() })
-      .where(and(
-        eq(chatMembersTable.userId, userId),
-        eq(chatMembersTable.roomId, roomId)
-      ));
+    await db.update(chatMembersTable).set({ lastReadAt: new Date() })
+      .where(and(eq(chatMembersTable.userId, userId), eq(chatMembersTable.roomId, roomId)));
 
-    res.json(createSuccessResponse({ 
+    res.json(createSuccessResponse({
       messages: messages.reverse(),
-      pagination: {
-        current: parseInt(page),
-        limit: parseInt(limit),
-        total,
-        totalPages: Math.ceil(total / parseInt(limit))
-      }
+      pagination: { current: Number(page), limit: Number(limit), total, totalPages: Math.ceil(total / Number(limit)) }
     }));
 
   } catch (error) {
@@ -300,24 +192,15 @@ const getMessages = async (req, res) => {
   }
 };
 
-// 搜尋用戶
+// ==================== 搜尋用戶 ====================
 const searchUsers = async (req, res) => {
   try {
     const { keyword } = req.query;
     const userId = req.user.id;
 
-    if (!keyword?.trim()) {
-      return res.status(400).json(createErrorResponse(
-        null, 
-        { code: 'InvalidKeyword', message: '搜尋關鍵字不能為空' }
-      ));
-    }
+    if (!keyword?.trim()) return res.status(400).json(createErrorResponse(null, ERROR_TYPES.AUTH.USER.INVALID_USER_INFO));
 
-    const users = await db
-      .select({
-        id: usersTable.id,
-        username: usersTable.username
-      })
+    const users = await db.select({ id: usersTable.id, username: usersTable.username })
       .from(usersTable)
       .where(and(
         sql`${usersTable.username} ILIKE ${`%${keyword}%`}`,
@@ -334,57 +217,38 @@ const searchUsers = async (req, res) => {
   }
 };
 
-// 獲取房間資訊
+// ==================== 取得房間資訊 ====================
 const getRoomInfo = async (req, res) => {
   try {
     const userId = req.user.id;
     const { roomId } = req.params;
 
-    // 檢查成員資格
-    const [membership] = await db
-      .select({ role: chatMembersTable.role })
+    const [membership] = await db.select({ role: chatMembersTable.role })
       .from(chatMembersTable)
-      .where(and(
-        eq(chatMembersTable.userId, userId),
-        eq(chatMembersTable.roomId, roomId)
-      ))
+      .where(and(eq(chatMembersTable.userId, userId), eq(chatMembersTable.roomId, roomId)))
       .limit(1);
 
-    if (!membership) {
-      return res.status(403).json(createErrorResponse(
-        null, 
-        ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER
-      ));
-    }
+    if (!membership) return res.status(403).json(createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
 
-    // 獲取房間資訊
-    const [roomInfo] = await db
-      .select({
-        id: chatRoomsTable.id,
-        roomName: chatRoomsTable.roomName,
-        roomType: chatRoomsTable.roomType,
-        createdAt: chatRoomsTable.createdAt
-      })
-      .from(chatRoomsTable)
+    const [roomInfo] = await db.select({
+      id: chatRoomsTable.id,
+      roomName: chatRoomsTable.roomName,
+      roomType: chatRoomsTable.roomType,
+      createdAt: chatRoomsTable.createdAt
+    }).from(chatRoomsTable)
       .where(eq(chatRoomsTable.id, roomId))
       .limit(1);
 
-    // 獲取成員列表
-    const members = await db
-      .select({
-        userId: chatMembersTable.userId,
-        username: usersTable.username,
-        role: chatMembersTable.role
-      })
+    const members = await db.select({
+      userId: chatMembersTable.userId,
+      username: usersTable.username,
+      role: chatMembersTable.role
+    })
       .from(chatMembersTable)
       .innerJoin(usersTable, eq(chatMembersTable.userId, usersTable.id))
       .where(eq(chatMembersTable.roomId, roomId));
 
-    res.json(createSuccessResponse({
-      room: roomInfo,
-      members,
-      userRole: membership.role
-    }));
+    res.json(createSuccessResponse({ room: roomInfo, members, userRole: membership.role }));
 
   } catch (error) {
     console.error('Error getting room info:', error);

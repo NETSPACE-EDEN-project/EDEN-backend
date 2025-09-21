@@ -1,6 +1,5 @@
 import { z } from 'zod';
 
-// 創建群組聊天驗證
 const createGroupChatSchema = z.object({
   groupName: z.string()
     .min(1, '群組名稱不能為空')
@@ -8,11 +7,11 @@ const createGroupChatSchema = z.object({
     .trim(),
   memberIds: z.array(z.number().int().positive())
     .max(50, '一次最多只能邀請50位成員')
+    .refine((ids) => new Set(ids).size === ids.length, '成員ID不能重複')
     .optional()
     .default([])
 });
 
-// 開始私人聊天驗證
 const startPrivateChatSchema = z.object({
   targetUserId: z.number()
     .int()
