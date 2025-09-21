@@ -10,8 +10,8 @@ const usersTable = pgTable('users', {
 	role: roleEnum('role').notNull().default('user'),
 	providerType: providerTypeEnum("provider_type").notNull(),
   status: statusEnum("status").notNull(),
-	createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow()
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow()
 });
 
 export { usersTable };

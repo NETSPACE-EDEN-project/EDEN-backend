@@ -8,8 +8,8 @@ const lineTable = pgTable('line_users', {
   lineDisplayName: varchar("line_display_name", { length: 255 }),
   linePictureUrl: text("line_picture_url"),
   lineStatusMessage: text("line_status_message"),
-	createdAt: timestamp("created_at").defaultNow(),
-	updatedAt: timestamp("updated_at").defaultNow()
+	createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow()
 });
 
 export { lineTable };

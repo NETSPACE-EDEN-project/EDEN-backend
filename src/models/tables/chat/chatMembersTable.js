@@ -7,8 +7,8 @@ const chatMembersTable = pgTable('chat_members', {
   roomId: integer('room_id').notNull().references(() => chatRoomsTable.id, { onDelete: 'cascade' }),
   userId: integer('user_id').notNull().references(() => usersTable.id, { onDelete: 'cascade' }),
   role: roleEnum('role').default('member'), // 'admin', 'member'
-  joinedAt: timestamp('joined_at').defaultNow(),
-  lastReadAt: timestamp('last_read_at')
+  joinedAt: timestamp('joined_at', { withTimezone: true }).defaultNow(),
+  lastReadAt: timestamp('last_read_at', { withTimezone: true })
 }, (table) => ({
   roomUserIdx: index('room_user_idx').on(table.roomId, table.userId),
   userRoomIdx: index('user_room_idx').on(table.userId, table.roomId),
