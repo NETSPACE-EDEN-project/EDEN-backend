@@ -7,6 +7,7 @@ import { sendMailService, generateToken, buildUrl, contentTemplate } from '../se
 import { createSuccessResponse, createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { COOKIE_NAMES } from '../config/authConfig.js';
+import { logger } from '../utils/logger.js';
 
 const createExpirationTime = (hours = 24) => {
   return new Date(Date.now() + hours * 60 * 60 * 1000);
@@ -22,6 +23,7 @@ const register = async (req, res) => {
       .limit(1);
 
     if (existingEmailUser) {
+      logger.security('嘗試註冊已存在的 email');
       return res.status(409).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_EXISTS
@@ -61,7 +63,13 @@ const register = async (req, res) => {
     const content = contentTemplate('信箱驗證', theme, '驗證信箱', verificationUrl);
     
     sendMailService(email, '信箱驗證', content).catch(error => {
-      console.error('驗證郵件發送失敗:', error);
+      logger.error('驗證郵件發送失敗', error);
+    });
+
+    logger.info('用戶註冊成功', { 
+      username,
+      providerType: 'email',
+      needsVerification: true 
     });
 
     return res.status(201).json(createSuccessResponse({
@@ -76,7 +84,7 @@ const register = async (req, res) => {
     }, '註冊成功，請檢查您的信箱進行驗證'));
 
   } catch (error) {
-    console.error('Register error:', error);
+    logger.error('註冊失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.USER.REGISTRATION_FAILED
@@ -88,7 +96,7 @@ const login = async (req, res) => {
   try {
     const { email, password, rememberMe } = req.validatedData;
 
-    console.log('Starting login process for email:', email);
+    logger.debug('開始登入流程');
 
     const [userWithEmail] = await db.select({
       id: usersTable.id,
@@ -110,7 +118,7 @@ const login = async (req, res) => {
     .limit(1);
 
     if (!userWithEmail) {
-      console.log('User not found for email:', email);
+      logger.security('登入失敗：用戶不存在');
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
@@ -119,7 +127,7 @@ const login = async (req, res) => {
 
     const isPasswordValid = await bcrypt.compare(password, userWithEmail.password);
     if (!isPasswordValid) {
-      console.log('Invalid password for email:', email);
+      logger.security('登入失敗：密碼錯誤', userWithEmail.id);
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.SESSION.INVALID_CREDENTIALS
@@ -128,11 +136,7 @@ const login = async (req, res) => {
 
     const { password: _, ...userForLogin } = userWithEmail;
 
-    console.log('User data for login:', { 
-      id: userForLogin.id, 
-      email: userForLogin.email,
-      isVerifiedEmail: userForLogin.isVerifiedEmail 
-    });
+    logger.debug('用戶認證成功');
 
     const result = await loginUserService(userForLogin, { 
       rememberMe,
@@ -140,33 +144,32 @@ const login = async (req, res) => {
     });
 
     if (!result.success) {
-      console.log('Login service failed:', result.message);
+      logger.error('登入服務失敗', { error: result.message });
       return res.status(400).json(result);
     }
 
-    console.log('About to call setAuthCookies with user:', userForLogin.id);
-    console.log('RememberMe option:', rememberMe);
+    logger.debug('準備設置認證 cookies', { rememberMe });
 
     const cookieResult = setAuthCookies(res, userForLogin, { 
-    rememberMe 
-  });
+      rememberMe 
+    });
 
     if (!cookieResult.success) {
-      console.log('Cookie setting failed:', cookieResult.message);
+      logger.error('設置認證 cookies 失敗', { error: cookieResult.message });
       return res.status(500).json(createErrorResponse(
         new Error('Failed to set authentication cookies'),
         ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
       ));
     }
 
-    console.log('Login successful for user:', userForLogin.id);
+    logger.info('用戶登入成功');
     return res.status(200).json(createSuccessResponse({
       user: result.data.user,
       redirectUrl: result.data.redirectUrl
     }, '登入成功'));
 
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('登入過程發生錯誤', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.SESSION.LOGIN_FAILED
@@ -179,14 +182,14 @@ const logout = async (req, res) => {
     const clearResult = clearAuthCookies(res);
     
     if (!clearResult.success) {
-      console.warn('Failed to clear cookies, but proceeding with logout:', clearResult.message);
+      logger.debug('清除 cookies 失敗，但繼續登出流程', { error: clearResult.message });
     }
 
     const logoutResult = logoutUserService();
     
     return res.status(200).json(logoutResult);
   } catch (error) {
-    console.error('Logout error:', error);
+    logger.error('登出失敗', error);
     clearAuthCookies(res);
     return res.status(500).json(createErrorResponse(
       error,
@@ -199,6 +202,7 @@ const refreshToken = async (req, res) => {
   try {
     const cookieData = getFromCookies(req);
     if (!cookieData.success || !cookieData.data?.hasRememberMe || !cookieData.data.userInfo) {
+      logger.debug('刷新 token 失敗：無有效的 refresh token');
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN
@@ -207,6 +211,7 @@ const refreshToken = async (req, res) => {
 
     const refreshTokenValue = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
     if (!refreshTokenValue) {
+      logger.debug('刷新 token 失敗：cookie 中無 refresh token');
       return res.status(401).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.TOKEN.NO_REFRESH_TOKEN
@@ -225,7 +230,7 @@ const refreshToken = async (req, res) => {
     });
     
     if (!cookieResult.success) {
-      console.warn('Failed to update cookies after token refresh:', cookieResult.message);
+      logger.debug('刷新後更新 cookies 失敗', { error: cookieResult.message });
     }
 
     return res.status(200).json(createSuccessResponse({
@@ -234,7 +239,7 @@ const refreshToken = async (req, res) => {
     }, 'Token 刷新成功'));
 
   } catch (error) {
-    console.error('Manual refresh token error:', error);
+    logger.error('手動刷新 token 失敗', error);
     clearAuthCookies(res);
     return res.status(500).json(createErrorResponse(
       error,
@@ -257,7 +262,7 @@ const getCurrentUserHandler = async (req, res) => {
       isAuthenticated: req.isAuthenticated || true
     }, '獲取用戶資訊成功'));
   } catch (error) {
-    console.error('Get current user error:', error);
+    logger.error('獲取當前用戶失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.SESSION.GET_USER_FAILED
@@ -270,6 +275,10 @@ const loginWithProvider = async (req, res) => {
     const { user, provider, rememberMe, redirectUrl } = req.validatedData;
 
     if (!provider || !user) {
+      logger.error('第三方登入參數不完整', { 
+        hasProvider: !!provider, 
+        hasUser: !!user 
+      });
       return res.status(400).json(createErrorResponse(
         new Error('Provider and user data are required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -290,6 +299,7 @@ const loginWithProvider = async (req, res) => {
     });
     
     if (!cookieResult.success) {
+      logger.error('第三方登入設置 cookies 失敗');
       return res.status(500).json(createErrorResponse(
         new Error('Failed to set authentication cookies'),
         ERROR_TYPES.AUTH.PROVIDER.PROVIDER_LOGIN_FAILED
@@ -302,7 +312,7 @@ const loginWithProvider = async (req, res) => {
     }, `${provider} 登入成功`));
 
   } catch (error) {
-    console.error('Login with provider error:', error);
+    logger.error('第三方登入失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.PROVIDER.PROVIDER_LOGIN_FAILED
@@ -317,7 +327,7 @@ const verifyAuthStatus = async (req, res) => {
       user: req.user || null
     }, '認證狀態檢查完成'));
   } catch (error) {
-    console.error('Verify auth status error:', error);
+    logger.error('驗證認證狀態失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED
@@ -348,6 +358,7 @@ const sendVerificationEmail = async (req, res) => {
     .limit(1);
 
     if (!userWithEmail) {
+      logger.security('嘗試發送驗證郵件給不存在的用戶');
       return res.status(404).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.USER_NOT_FOUND
@@ -355,6 +366,7 @@ const sendVerificationEmail = async (req, res) => {
     }
 
     if (userWithEmail.isVerifiedEmail) {
+      logger.debug('嘗試發送驗證郵件給已驗證的用戶');
       return res.status(400).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_VERIFIED
@@ -363,6 +375,7 @@ const sendVerificationEmail = async (req, res) => {
 
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
     if (userWithEmail.lastVerificationEmailSent && userWithEmail.lastVerificationEmailSent > fiveMinutesAgo) {
+      logger.security('驗證郵件發送過於頻繁', userWithEmail.id);
       return res.status(429).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.TOO_MANY_REQUESTS
@@ -372,7 +385,6 @@ const sendVerificationEmail = async (req, res) => {
     const newToken = generateToken();
 
     await db.transaction(async (tx) => {
-
       await tx.update(emailTable)
         .set({ 
           emailVerificationToken: newToken,
@@ -395,13 +407,14 @@ const sendVerificationEmail = async (req, res) => {
       }
     });
 
+    logger.info('重新發送驗證郵件成功');
     return res.status(200).json(createSuccessResponse(
       null,
       '驗證郵件已重新發送，請檢查您的信箱'
     ));
 
   } catch (error) {
-    console.error('Send verification email error:', error);
+    logger.error('發送驗證郵件失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.TOKEN.EMAIL_SEND_FAILED
@@ -433,6 +446,7 @@ const verifyEmail = async (req, res) => {
     .limit(1);
 
     if (!userWithEmail) {
+      logger.security('使用無效 token 嘗試驗證 email');
       return res.status(400).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.TOKEN.INVALID_TOKEN
@@ -440,6 +454,7 @@ const verifyEmail = async (req, res) => {
     }
 
     if (userWithEmail.isVerifiedEmail) {
+      logger.debug('嘗試驗證已驗證的 email');
       return res.status(400).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.EMAIL_ALREADY_VERIFIED
@@ -448,6 +463,7 @@ const verifyEmail = async (req, res) => {
 
     if (userWithEmail.emailVerificationExpires && 
         new Date() > userWithEmail.emailVerificationExpires) {
+      logger.debug('使用過期 token 嘗試驗證 email', userWithEmail.id);
       return res.status(400).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.TOKEN.TOKEN_EXPIRED
@@ -463,6 +479,7 @@ const verifyEmail = async (req, res) => {
       })
       .where(eq(emailTable.userId, userWithEmail.id));
 
+    logger.info('email 驗證成功', { userId: userWithEmail.id });
     return res.status(200).json(createSuccessResponse(
       { 
         user: {
@@ -476,7 +493,7 @@ const verifyEmail = async (req, res) => {
     ));
 
   } catch (error) {
-    console.error('Verify email error:', error);
+    logger.error('email 驗證失敗', error);
     return res.status(500).json(createErrorResponse(
       error,
       ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED

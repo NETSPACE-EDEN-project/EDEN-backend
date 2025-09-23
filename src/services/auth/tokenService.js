@@ -5,6 +5,7 @@ import { usersTable, emailTable } from '../../models/schema.js';
 import { JWT_CONFIG, COOKIE_NAMES } from '../../config/authConfig.js';
 import { buildTokenPayload, isTokenExpiringSoon } from '../../utils/tokenUtils.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
+import { logger } from '../../utils/logger.js';
 
 const generateAccessToken = (user) => {
   try {
@@ -13,9 +14,10 @@ const generateAccessToken = (user) => {
       expiresIn: JWT_CONFIG.access.expiresIn 
     });
 
+    logger.debug('生成 accessToken 成功');
     return createSuccessResponse(token, '生成 accessToken 成功');
   } catch (error) {
-    console.error('Error generating access token:', error);
+    logger.error('生成 accessToken 失敗', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_ACCESS_TOKEN_ERROR);
   }
 };
@@ -27,42 +29,37 @@ const generateRefreshToken = (user) => {
       expiresIn: JWT_CONFIG.refresh.expiresIn 
     });
 
+    logger.debug('生成 refreshToken 成功');
     return createSuccessResponse(token, '生成 refreshToken 成功');
   } catch (error) {
-    console.error('Error generating refresh token:', error);
+    logger.error('生成 refreshToken 失敗', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_REFRESH_TOKEN_ERROR);
   }
 };
 
 const generateTokenPair = (user) => {
-  console.log('=== generateTokenPair START ===');
-  console.log('User for token generation:', { id: user?.id, email: user?.email });
+  logger.debug('開始生成 token pair');
   
   try {
-    console.log('Generating access token...');
     const accessResult = generateAccessToken(user);
-    console.log('Access token generation success:', accessResult.success);
     if (!accessResult.success) {
-      console.log('Access token error:', accessResult);
+      logger.error('生成 accessToken 失敗', { error: accessResult.message });
+      return accessResult;
     }
     
-    console.log('Generating refresh token...');
     const refreshResult = generateRefreshToken(user);
-    console.log('Refresh token generation success:', refreshResult.success);
     if (!refreshResult.success) {
-      console.log('Refresh token error:', refreshResult);
+      logger.error('生成 refreshToken 失敗', { error: refreshResult.message });
+      return refreshResult;
     }
 
-    if (!accessResult.success) return accessResult;
-    if (!refreshResult.success) return refreshResult;
-
-    console.log('=== generateTokenPair SUCCESS ===');
+    logger.debug('Token pair 生成成功');
     return createSuccessResponse({ 
       accessToken: accessResult.data, 
       refreshToken: refreshResult.data 
     }, '生成 tokenPair 成功');
   } catch (error) {
-    console.error('=== generateTokenPair ERROR ===', error);
+    logger.error('生成 token pair 過程發生錯誤', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.GENERATE_TOKEN_PAIR_ERROR);
   }
 };
@@ -80,6 +77,7 @@ const verifyToken = (token, tokenType) => {
     const decoded = jwt.verify(token, config.secret);
 
     if (decoded.type !== tokenType) {
+      logger.security(`Token 類型不匹配 - 期望: ${tokenType}, 實際: ${decoded.type}`);
       return createErrorResponse(
         new Error('Invalid token type'), 
         ERROR_TYPES.AUTH.TOKEN.INVALID_TOKEN_TYPE
@@ -88,7 +86,7 @@ const verifyToken = (token, tokenType) => {
     
     return createSuccessResponse(decoded, `成功驗證 ${tokenType} Token`);
   } catch (error) {
-    console.error(`${tokenType} Token verification failed:`, error.message);
+    logger.debug(`${tokenType} Token 驗證失敗`, { reason: error.message });
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.AUTH_VERIFICATION_FAILED);
   }
 };
@@ -106,8 +104,11 @@ const refreshAccessToken = async (refreshToken) => {
       );
     }
 
+    logger.debug('開始刷新 access token');
+
     const refreshResult = verifyRefreshToken(refreshToken);
     if (!refreshResult.success) {
+      logger.debug('Refresh token 驗證失敗');
       return refreshResult;
     }
 
@@ -129,8 +130,9 @@ const refreshAccessToken = async (refreshToken) => {
     .limit(1);
 
     if (!user) {
+      logger.security('嘗試刷新不存在用戶的 token', userId);
       return createErrorResponse(
-        new Error('User is not exist'),
+        new Error('User does not exist'),
         ERROR_TYPES.AUTH.USER.INVALID_USER_INFO
       );
     }
@@ -149,13 +151,14 @@ const refreshAccessToken = async (refreshToken) => {
       return accessResult;
     }
 
+    logger.info('Access token 刷新成功');
     return createSuccessResponse({ 
       accessToken: accessResult.data, 
       userId: user.id,
       user: userForToken
     });
   } catch (error) {
-    console.error('Error refreshing access token:', error);
+    logger.error('刷新 access token 失敗', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.TOKEN.REFRESH_ERROR);
   }
 };
@@ -236,7 +239,7 @@ const shouldRefreshToken = (req) => {
       reason: 'Access token valid' 
     };
   } catch (error) {
-    console.error('Error checking if should refresh token:', error);
+    logger.error('檢查 token 刷新狀態失敗', error);
     return { 
       shouldRefresh: false, 
       reason: 'Token validation check failed',
