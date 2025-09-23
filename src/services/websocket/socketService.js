@@ -165,8 +165,9 @@ const handleSendMessage = async (socket, io, data) => {
   try {
     const { roomId, content, messageType = 'text', replyToId = null } = data;
 
-    // 基本驗證（只驗證必要欄位存在）
+    // 基本驗證
     if (!roomId || !content?.trim()) {
+      console.warn('發送訊息失敗：缺少 roomId 或 content');
       return socket.emit('error', createErrorResponse(
         null, 
         ERROR_TYPES.CHAT.MESSAGE.INVALID_PAGINATION,
@@ -174,33 +175,89 @@ const handleSendMessage = async (socket, io, data) => {
       ));
     }
 
-    // 檢查用戶是否為房間成員（避免無效廣播）
+    // 驗證房間成員
     const isMember = await verifyRoomMembership(socket.userId, roomId);
+    console.log('驗證房間成員:', socket.userId, roomId, isMember);
     if (!isMember) {
+      console.warn(`用戶 ${socket.username} 不是房間 ${roomId} 成員`);
       return socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
     }
 
-    // 準備要廣播的訊息資料（不存入資料庫，由 HTTP API 處理）
-    const messageData = {
+    // 驗證回覆訊息（如果有的話）
+    if (replyToId) {
+      const [replyMessage] = await db
+        .select({ id: messagesTable.id })
+        .from(messagesTable)
+        .where(and(
+          eq(messagesTable.id, parseInt(replyToId)),
+          eq(messagesTable.roomId, parseInt(roomId)),
+          eq(messagesTable.isDeleted, false)
+        ))
+        .limit(1);
+
+      if (!replyMessage) {
+        console.warn(`回覆的訊息 ${replyToId} 不存在或已刪除`);
+        return socket.emit('error', createErrorResponse(
+          null, 
+          ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED,
+          { details: ['回覆的訊息不存在'] }
+        ));
+      }
+    }
+
+    // 儲存訊息到資料庫
+    const [savedMessage] = await db.insert(messagesTable).values({
       roomId: parseInt(roomId),
       senderId: socket.userId,
-      senderUsername: socket.username,
       content: content.trim(),
       messageType,
       replyToId: replyToId ? parseInt(replyToId) : null,
-      createdAt: new Date()
+      isDeleted: false
+    }).returning();
+
+    console.log('訊息已儲存到資料庫:', savedMessage.id);
+
+    // 更新房間最後訊息時間
+    await db.update(chatRoomsTable)
+      .set({ lastMessageAt: new Date() })
+      .where(eq(chatRoomsTable.id, parseInt(roomId)));
+
+    console.log('房間最後訊息時間已更新');
+
+    // 準備廣播的訊息資料
+    const messageData = {
+      id: savedMessage.id,
+      roomId: savedMessage.roomId,
+      senderId: socket.userId,
+      senderUsername: socket.username,
+      content: savedMessage.content,
+      messageType: savedMessage.messageType,
+      replyToId: savedMessage.replyToId,
+      createdAt: savedMessage.createdAt,
+      isDeleted: savedMessage.isDeleted
     };
 
-    // 廣播給房間內所有用戶
-    io.to(`room_${roomId}`).emit('new_message', createSuccessResponse(messageData));
+    // 檢查用戶是否已 join 房間
+    const currentRoomUsers = getRoomUsers(roomId);
+    console.log(`房間 ${roomId} 目前用戶:`, currentRoomUsers);
 
-    console.log(`用戶 ${socket.username} 在房間 ${roomId} 發送了訊息`);
+    // 廣播訊息給房間內所有用戶
+    io.to(`room_${roomId}`).emit('new_message', createSuccessResponse(messageData));
+    console.log(`用戶 ${socket.username} 在房間 ${roomId} 發送訊息並廣播成功:`, messageData);
+
+    // 清除該用戶在此房間的打字狀態
+    setTyping(socket.userId, roomId, false);
+    socket.to(`room_${roomId}`).emit('user_stop_typing', createSuccessResponse({
+      userId: socket.userId,
+      roomId: parseInt(roomId)
+    }));
 
   } catch (error) {
-    console.error('處理發送訊息時發生錯誤:', error);
+    console.error('處理 send_message 發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED));
   }
 };
+
 
 const handleJoinRoom = async (socket, io, data) => {
   try {

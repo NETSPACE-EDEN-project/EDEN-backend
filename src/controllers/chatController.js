@@ -1,6 +1,6 @@
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { db } from '../config/db.js';
-import { chatRoomsTable, chatMembersTable, messagesTable, usersTable } from '../models/schema.js';
+import { messagesTable, chatRoomsTable, chatMembersTable, usersTable } from '../models/tables/tables.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/responseUtils.js';
 
 // ==================== 取得聊天列表 ====================
@@ -8,7 +8,7 @@ const getChatList = async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const chats = await db
+    const chatrooms = await db
       .select({
         roomId: chatRoomsTable.id,
         roomName: chatRoomsTable.roomName,
@@ -35,7 +35,7 @@ const getChatList = async (req, res) => {
       .where(eq(chatMembersTable.userId, userId))
       .orderBy(desc(chatRoomsTable.lastMessageAt));
 
-    res.json(createSuccessResponse({ chats }));
+    res.json(createSuccessResponse({ chatrooms }));
 
   } catch (error) {
     console.error('Error getting chat list:', error);
