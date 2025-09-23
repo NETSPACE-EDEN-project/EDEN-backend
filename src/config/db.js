@@ -4,9 +4,13 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
+const sslConfig = process.env.DATABASE_SSL === 'true' ? {
+  rejectUnauthorized: false
+} : false;
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: false, // 暫時關閉 SSL
+  ssl: sslConfig,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 2000,
