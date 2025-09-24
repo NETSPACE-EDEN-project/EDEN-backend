@@ -2,9 +2,8 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { db } from '../config/db.js';
 import { messagesTable, chatRoomsTable, chatMembersTable, usersTable } from '../models/tables/tables.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../utils/responseUtils.js';
-import { logger } from '../utils/logger.js';
 
-// ==================== 獲取聊天列表 ====================
+// ==================== 獲得聊天列表 ====================
 const getChatList = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -26,11 +25,10 @@ const getChatList = async (req, res) => {
       .where(eq(chatMembersTable.userId, userId))
       .orderBy(desc(chatRoomsTable.lastMessageAt));
 
-    logger.debug('獲取聊天列表成功', { roomCount: chatrooms.length });
     res.json(createSuccessResponse({ chatrooms }));
 
   } catch (error) {
-    logger.error('獲取聊天列表失敗', error);
+    console.error('獲取聊天列表失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.LIST.GET_ROOMS_FAILED));
   }
 };
@@ -43,7 +41,6 @@ const startPrivateChat = async (req, res) => {
 
     // 檢查是否與自己聊天
     if (targetUserId === userId) {
-      logger.debug('嘗試與自己開啟私人聊天');
       return res.status(400).json(createErrorResponse(null, ERROR_TYPES.CHAT.ROOM.INVALID_MEMBER_IDS));
     }
 
@@ -55,7 +52,6 @@ const startPrivateChat = async (req, res) => {
       .limit(1);
 
     if (!targetUser) {
-      logger.debug('嘗試與不存在的用戶開啟私人聊天', { targetUserId });
       return res.status(404).json(createErrorResponse(null, ERROR_TYPES.AUTH.USER.USER_NOT_FOUND));
     }
 
@@ -72,7 +68,6 @@ const startPrivateChat = async (req, res) => {
       .limit(1);
 
     if (existingRoom) {
-      logger.debug('私人聊天室已存在', { roomId: existingRoom.roomId });
       return res.json(createSuccessResponse({
         roomId: existingRoom.roomId,
         roomName: existingRoom.roomName,
@@ -96,7 +91,6 @@ const startPrivateChat = async (req, res) => {
       return room;
     });
 
-    logger.info('私人聊天室創建成功', { roomId: newRoom.id });
     res.status(201).json(createSuccessResponse({
       roomId: newRoom.id,
       roomName: newRoom.roomName,
@@ -104,7 +98,7 @@ const startPrivateChat = async (req, res) => {
     }, '私人聊天室創建成功'));
 
   } catch (error) {
-    logger.error('創建私人聊天失敗', error);
+    console.error('創建私人聊天失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
   }
 };
@@ -133,18 +127,13 @@ const createGroupChat = async (req, res) => {
       return newGroup;
     });
 
-    logger.info('群組聊天室創建成功', { 
-      roomId: result.id, 
-      memberCount: memberIds.length + 1 
-    });
-
     res.status(201).json(createSuccessResponse({
       roomId: result.id,
       roomName: result.roomName
     }, '群組聊天室創建成功'));
 
   } catch (error) {
-    logger.error('創建群組聊天失敗', error);
+    console.error('創建群組聊天失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.CREATE_ROOM_FAILED));
   }
 };
@@ -167,13 +156,12 @@ const getMessages = async (req, res) => {
       .limit(1);
 
     if (!membership) {
-      logger.security('非房間成員嘗試獲取訊息', userId, { roomId });
       return res.status(403).json(createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
     }
 
     const offset = (page - 1) * limit;
 
-    // 獲取訊息
+    // 獲取訊息 - 移除回覆相關欄位
     const messages = await db
       .select({
         id: messagesTable.id,
@@ -203,13 +191,6 @@ const getMessages = async (req, res) => {
         eq(messagesTable.isDeleted, false)
       ));
 
-    logger.debug('獲取訊息成功', { 
-      roomId, 
-      messageCount: messages.length, 
-      page: Number(page),
-      total 
-    });
-
     res.json(createSuccessResponse({
       messages: messages.reverse(),
       pagination: { 
@@ -221,7 +202,7 @@ const getMessages = async (req, res) => {
     }));
 
   } catch (error) {
-    logger.error('獲取訊息失敗', error);
+    console.error('獲取訊息失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED));
   }
 };
@@ -233,7 +214,6 @@ const searchUsers = async (req, res) => {
     const userId = req.user.id;
 
     if (!keyword?.trim()) {
-      logger.debug('搜尋用戶失敗：關鍵字為空');
       return res.status(400).json(createErrorResponse(null, ERROR_TYPES.AUTH.USER.INVALID_USER_INFO));
     }
 
@@ -250,15 +230,10 @@ const searchUsers = async (req, res) => {
       ))
       .limit(10);
 
-    logger.debug('搜尋用戶成功', { 
-      keyword: keyword.trim(),
-      resultCount: users.length 
-    });
-
     res.json(createSuccessResponse({ users }));
 
   } catch (error) {
-    logger.error('搜尋用戶失敗', error);
+    console.error('搜尋用戶失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.LIST.GET_ROOMS_FAILED));
   }
 };
@@ -280,7 +255,6 @@ const getRoomInfo = async (req, res) => {
       .limit(1);
 
     if (!membership) {
-      logger.security('非房間成員嘗試獲取房間資訊', userId, { roomId });
       return res.status(403).json(createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
     }
 
@@ -308,12 +282,6 @@ const getRoomInfo = async (req, res) => {
       .innerJoin(usersTable, eq(chatMembersTable.userId, usersTable.id))
       .where(eq(chatMembersTable.roomId, roomId));
 
-    logger.debug('獲取房間資訊成功', { 
-      roomId, 
-      memberCount: members.length,
-      userRole: membership.role 
-    });
-
     res.json(createSuccessResponse({ 
       room: roomInfo, 
       members, 
@@ -321,7 +289,7 @@ const getRoomInfo = async (req, res) => {
     }));
 
   } catch (error) {
-    logger.error('獲取房間資訊失敗', error);
+    console.error('獲取房間資訊失敗:', error);
     res.status(500).json(createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.ROOM_NOT_FOUND));
   }
 };

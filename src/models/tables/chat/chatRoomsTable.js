@@ -1,18 +1,18 @@
 import { pgTable, serial, varchar, text, boolean, integer, timestamp, index } from 'drizzle-orm/pg-core';
 import { statusEnum, roomTypeEnum } from '../../enums/enums.js';
-import { usersTable } from '../tables.js';
+import { usersTable, messagesTable } from '../tables.js';
 
 const chatRoomsTable = pgTable('chat_rooms', {
-  id: serial('id').primaryKey(),
-  roomName: varchar('name', { length: 100 }),
-  description: text('description'),
-  roomType: roomTypeEnum('room_type').notNull().default('group'),
-  createdBy: integer('created_by').notNull().references(() => usersTable.id, { onDelete: 'set null' }),
-  status: statusEnum('status').notNull().default('active'),
-  maxMembers: integer('max_members').default(100),
+	id: serial('id').primaryKey(),
+	roomName: varchar('name', { length: 100 }),
+	description: text('description'),
+	roomType: roomTypeEnum('room_type').notNull().default('group'),
+	createdBy: integer('created_by').notNull().references(() => usersTable.id, { onDelete: 'set null' }),
+	status: statusEnum('status').notNull().default('active'),
+	maxMembers: integer('max_members').default(100),
   isPrivate: boolean('is_private').default(false),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
-  lastMessageId: integer('last_message_id'),
+  lastMessageId: integer('last_message_id').references(() => messagesTable.id, { onDelete: "set null" }),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow()
 }, (table) => ({

@@ -1,24 +1,17 @@
-import dotenv from 'dotenv';
 import { COOKIE_NAMES, cookieConfig, clearCookieConfig } from '../../config/authConfig.js';
 import { generateTokenPair, verifyAccessToken, verifyRefreshToken } from './tokenService.js';
 import { buildDisplayInfo } from '../../utils/tokenUtils.js';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js';
-import { logger } from '../../utils/logger.js';
-
-dotenv.config();
 
 const setAuthCookies = (res, user, options = {}) => {
-  logger.debug('開始設置認證 cookies', { 
-    hasUser: !!user,
-    nodeEnv: process.env.NODE_ENV 
-  });
+  console.log('=== setAuthCookies START ===');
+  console.log('User ID:', user?.id);
+  console.log('NODE_ENV:', process.env.NODE_ENV);
+  console.log('Options:', options);
   
   try {
     if (!res || !user) {
-      logger.error('設置 cookies 參數不完整', { 
-        hasRes: !!res, 
-        hasUser: !!user 
-      });
+      console.log('Missing res or user - returning error');
       return createErrorResponse(
         new Error('Response object and user are required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -32,77 +25,61 @@ const setAuthCookies = (res, user, options = {}) => {
       updateDisplayInfo = true
     } = options;
 
-    logger.debug('Cookie 設置選項', { 
-      rememberMe, 
-      updateAccessToken, 
-      updateRefreshToken, 
-      updateDisplayInfo 
-    });
+    console.log('Processed options:', { rememberMe, updateAccessToken, updateRefreshToken, updateDisplayInfo });
 
     let accessToken = null;
     let refreshToken = null;
 
     if (updateAccessToken || (updateRefreshToken && rememberMe)) {
-      logger.debug('開始生成 token pair');
+      console.log('Calling generateTokenPair...');
       const tokenResult = generateTokenPair(user);
+      console.log('generateTokenPair result success:', tokenResult.success);
       
       if (!tokenResult.success) {
-        logger.error('Token 生成失敗', { error: tokenResult.message });
+        console.log('generateTokenPair failed:', tokenResult);
         return tokenResult;
       }
       
       const tokens = tokenResult.data;
       accessToken = tokens.accessToken;
       refreshToken = tokens.refreshToken;
-      logger.debug('Token 生成完成', { 
-        hasAccessToken: !!accessToken, 
-        hasRefreshToken: !!refreshToken 
-      });
+      console.log('Tokens generated - accessToken exists:', !!accessToken, 'refreshToken exists:', !!refreshToken);
     }
 
     if (updateAccessToken && accessToken) {
-      logger.debug('設置 access token cookie', {
-        cookieConfig: {
-          httpOnly: cookieConfig.auth_token.httpOnly,
-          secure: cookieConfig.auth_token.secure,
-          sameSite: cookieConfig.auth_token.sameSite
-        }
-      });
+      console.log('Setting auth token cookie with config:', cookieConfig.auth_token);
+      console.log('Access token (first 50 chars):', accessToken.substring(0, 50));
       res.cookie(COOKIE_NAMES.AUTH_TOKEN, accessToken, cookieConfig.auth_token);
+      console.log('Response Set-Cookie headers:', res.getHeaders()['set-cookie']);
     } else {
-      logger.debug('跳過設置 access token', { 
-        updateAccessToken, 
-        hasAccessToken: !!accessToken 
-      });
+      console.log('Auth token NOT set - updateAccessToken:', updateAccessToken, 'accessToken exists:', !!accessToken);
     }
 
     if (updateRefreshToken && rememberMe && refreshToken) {
-      logger.debug('設置 refresh token cookie');
+      console.log('Setting refresh token cookie');
       res.cookie(COOKIE_NAMES.REMEMBER_ME, refreshToken, cookieConfig.remember_me);
+      console.log('Refresh token cookie set');
     } else {
-      logger.debug('跳過設置 refresh token', { 
-        updateRefreshToken, 
-        rememberMe, 
-        hasRefreshToken: !!refreshToken 
-      });
+      console.log('Refresh token NOT set - updateRefreshToken:', updateRefreshToken, 'rememberMe:', rememberMe, 'refreshToken exists:', !!refreshToken);
     }
 
     if (updateDisplayInfo) {
+      console.log('Setting display info cookie');
       const displayInfo = buildDisplayInfo(user);
-      logger.debug('設置用戶顯示資訊 cookie', {
-        hasDisplayInfo: !!displayInfo
-      });
+      console.log('Display info:', displayInfo);
       res.cookie(COOKIE_NAMES.USER_DISPLAY, JSON.stringify(displayInfo), cookieConfig.user_display);
+      console.log('Display info cookie set');
     }
 
-    logger.info('認證 cookies 設置成功');
+    console.log('=== setAuthCookies SUCCESS ===');
+    console.log('=== setAuthCookies END ===');
     return createSuccessResponse({ 
       accessToken, 
       refreshToken: (updateRefreshToken && rememberMe) ? refreshToken : null,
       displayInfo: updateDisplayInfo ? buildDisplayInfo(user) : null
     });
   } catch (error) {
-    logger.error('設置認證 cookies 失敗', error);
+    console.error('=== setAuthCookies ERROR ===', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.COOKIE.COOKIE_ERROR);
   }
 };
@@ -110,7 +87,6 @@ const setAuthCookies = (res, user, options = {}) => {
 const clearAuthCookies = (res) => {
   try {
     if (!res) {
-      logger.error('清除 cookies 缺少 response 物件');
       return createErrorResponse(
         new Error('Response object is required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -121,23 +97,19 @@ const clearAuthCookies = (res) => {
     res.clearCookie(COOKIE_NAMES.USER_DISPLAY, clearCookieConfig);
     res.clearCookie(COOKIE_NAMES.REMEMBER_ME, clearCookieConfig);
 
-    logger.info('認證 cookies 清除成功');
     return createSuccessResponse(null, 'Authentication cookies cleared successfully');
   } catch (error) {
-    logger.error('清除認證 cookies 失敗', error);
+    console.error('Error clearing auth cookies:', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.COOKIE.CLEAR_COOKIE_ERROR);
   }
 };
 
 const getFromCookies = (req) => {
   try {
-    logger.debug('開始讀取 cookies');
-    
+    console.log('=== getFromCookies START ===');
+    console.log('All cookies:', req.cookies);
+    console.log('All signed cookies:', req.signedCookies);
     if (!req || !req.signedCookies) {
-      logger.error('讀取 cookies 參數不完整', {
-        hasReq: !!req,
-        hasSignedCookies: !!req?.signedCookies
-      });
       return createErrorResponse(
         new Error('Request object with signed cookies is required'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -145,22 +117,13 @@ const getFromCookies = (req) => {
     }
 
     const accessToken = req.signedCookies?.[COOKIE_NAMES.AUTH_TOKEN];
+    console.log('Access token from cookie (first 50 chars):', accessToken?.substring(0, 50));
     const refreshToken = req.signedCookies?.[COOKIE_NAMES.REMEMBER_ME];
     const displayInfoRaw = req.signedCookies?.[COOKIE_NAMES.USER_DISPLAY];
 
-    logger.debug('Cookie 狀態', {
-      hasAccessToken: !!accessToken,
-      hasRefreshToken: !!refreshToken,
-      hasDisplayInfo: !!displayInfoRaw
-    });
-
     let userInfo = null;
     if (displayInfoRaw) {
-      try {
-        userInfo = JSON.parse(displayInfoRaw);
-      } catch (parseError) {
-        logger.error('解析用戶顯示資訊失敗', parseError);
-      }
+      userInfo = JSON.parse(displayInfoRaw); 
     }
 
     let validAccessToken = null;
@@ -171,16 +134,9 @@ const getFromCookies = (req) => {
         validAccessToken = accessToken;
         accessTokenData = verifyResult.data;
       }
-      
-      try {
-        const decoded = JSON.parse(atob(accessToken.split('.')[1]));
-        logger.debug('Access token 資訊', {
-          expiresAt: new Date(decoded.exp * 1000).toISOString(),
-          isValid: !!validAccessToken
-        });
-      } catch (decodeError) {
-        logger.debug('無法解析 access token');
-      }
+      const decoded = JSON.parse(atob(accessToken.split('.')[1]));
+      console.log('Token exp timestamp:', decoded.exp);
+      console.log('Token expires at:', new Date(decoded.exp * 1000).toISOString());
     }
 
     let validRefreshToken = null;
@@ -192,11 +148,6 @@ const getFromCookies = (req) => {
         refreshTokenData = verifyResult.data;
       }
     }
-
-    logger.debug('Cookie 驗證結果', {
-      hasValidAuth: !!validAccessToken,
-      hasRememberMe: !!validRefreshToken
-    });
 
     return createSuccessResponse({ 
       accessToken: validAccessToken, 
@@ -210,7 +161,7 @@ const getFromCookies = (req) => {
       hasRememberMe: !!validRefreshToken 
     });
   } catch (error) {
-    logger.error('讀取 cookies 失敗', error);
+    console.error('Error getting cookies:', error);
     return createErrorResponse(error, ERROR_TYPES.AUTH.COOKIE.COOKIE_PARSE_ERROR);
   }
 };

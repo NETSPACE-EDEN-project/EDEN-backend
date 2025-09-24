@@ -8,7 +8,6 @@ import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../u
 import { verifyAccessToken } from '../auth/tokenService.js';
 import { db } from '../../config/db.js';
 import { messagesTable, chatRoomsTable, chatMembersTable } from '../../models/tables/tables.js';
-import { logger } from '../../utils/logger.js';
 
 dotenv.config();
 
@@ -61,7 +60,7 @@ const verifyRoomMembership = async (userId, roomId) => {
 
     return !!membership;
   } catch (error) {
-    logger.error('驗證房間成員資格失敗', error);
+    console.error('驗證房間成員資格時發生錯誤:', error);
     return false;
   }
 };
@@ -75,15 +74,14 @@ const getUserRooms = async (userId) => {
 
     return userRoomsData.map(room => room.roomId);
   } catch (error) {
-    logger.error('獲取用戶房間失敗', error);
+    console.error('獲取用戶房間時發生錯誤:', error);
     return [];
   }
 };
 
 // ========== 事件處理函數 ==========
 const handleConnection = async (socket, io) => {
-  logger.socket('用戶連線成功', socket.id);
-  logger.info('用戶連線', { onlineCount: getOnlineCount() + 1 });
+  console.log(`用戶 ${socket.username} (ID: ${socket.userId}) 已連線`);
 
   // 記錄用戶連線
   addUser(socket.userId, socket.id, socket.username);
@@ -102,12 +100,9 @@ const autoJoinUserRooms = async (socket, io) => {
       addUserToRoom(socket.userId, roomId);
     }
 
-    logger.debug('用戶自動加入房間', { 
-      userId: '[REDACTED]', 
-      roomCount: roomIds.length 
-    });
+    console.log(`用戶 ${socket.username} 加入了 ${roomIds.length} 個房間`);
   } catch (error) {
-    logger.error('自動加入房間失敗', error);
+    console.error('自動加入用戶房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
@@ -118,7 +113,6 @@ const handleSendMessage = async (socket, io, data) => {
 
     // 基本驗證
     if (!roomId || !content?.trim()) {
-      logger.debug('訊息驗證失敗', { hasRoomId: !!roomId, hasContent: !!content?.trim() });
       return socket.emit('error', createErrorResponse(
         null, 
         ERROR_TYPES.CHAT.MESSAGE.INVALID_PAGINATION,
@@ -129,7 +123,6 @@ const handleSendMessage = async (socket, io, data) => {
     // 驗證房間成員
     const isMember = await verifyRoomMembership(socket.userId, roomId);
     if (!isMember) {
-      logger.security('非房間成員嘗試發送訊息', socket.userId);
       return socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
     }
 
@@ -162,14 +155,8 @@ const handleSendMessage = async (socket, io, data) => {
     // 廣播訊息給房間內所有用戶
     io.to(`room_${roomId}`).emit('new_message', createSuccessResponse(messageData));
 
-    logger.info('訊息發送成功', { 
-      roomId, 
-      messageType, 
-      contentLength: content.trim().length 
-    });
-
   } catch (error) {
-    logger.error('處理發送訊息失敗', error);
+    console.error('處理 send_message 發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.MESSAGE.GET_MESSAGES_FAILED));
   }
 };
@@ -185,7 +172,6 @@ const handleJoinRoom = async (socket, io, data) => {
     // 驗證房間成員資格
     const isMember = await verifyRoomMembership(socket.userId, roomId);
     if (!isMember) {
-      logger.security('非成員嘗試加入房間', socket.userId);
       return socket.emit('error', createErrorResponse(null, ERROR_TYPES.CHAT.MEMBER.NOT_ROOM_MEMBER));
     }
 
@@ -195,11 +181,9 @@ const handleJoinRoom = async (socket, io, data) => {
 
     // 回傳成功訊息
     socket.emit('joined_room', createSuccessResponse({ roomId }));
-    
-    logger.debug('用戶加入房間', { roomId });
 
   } catch (error) {
-    logger.error('處理加入房間失敗', error);
+    console.error('處理加入房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
@@ -219,21 +203,15 @@ const handleLeaveRoom = (socket, io, data) => {
     userRooms.get(socket.userId)?.delete(roomId);
 
     socket.emit('left_room', createSuccessResponse({ roomId }));
-    
-    logger.debug('用戶離開房間', { roomId });
 
   } catch (error) {
-    logger.error('處理離開房間失敗', error);
+    console.error('處理離開房間時發生錯誤:', error);
     socket.emit('error', createErrorResponse(error, ERROR_TYPES.CHAT.ROOM.JOIN_ROOM_FAILED));
   }
 };
 
 const handleDisconnect = (socket, io, reason) => {
-  logger.socket('用戶斷線', socket.id);
-  logger.info('用戶斷線', { 
-    reason: reason,
-    onlineCount: getOnlineCount() - 1
-  });
+  console.log(`用戶 ${socket.username} (ID: ${socket.userId}) 已斷線: ${reason}`);
 
   // 清理用戶狀態
   removeUser(socket.userId);
@@ -246,7 +224,6 @@ const setupAuthentication = (io) => {
       const cookieHeader = socket.handshake.headers.cookie;
       
       if (!cookieHeader) {
-        logger.debug('Socket認證失敗：缺少 cookie');
         return next(new Error('缺少 cookie'));
       }
 
@@ -255,13 +232,11 @@ const setupAuthentication = (io) => {
       const token = signedCookies['auth_token'];
 
       if (!token) {
-        logger.debug('Socket認證失敗：缺少 token');
         return next(new Error('缺少 token 或簽名錯誤'));
       }
 
       const verifyResult = verifyAccessToken(token);
       if (!verifyResult.success) {
-        logger.debug('Socket認證失敗：token 驗證失敗');
         return next(new Error('Token 驗證失敗'));
       }
 
@@ -269,10 +244,9 @@ const setupAuthentication = (io) => {
       socket.username = verifyResult.data.username;
       socket.userRole = verifyResult.data.role;
 
-      logger.security('Socket認證成功', socket.userId);
       next();
     } catch (error) {
-      logger.error('Socket認證過程錯誤', error);
+      console.error('Socket 認證錯誤:', error);
       next(new Error('認證過程發生錯誤'));
     }
   });
@@ -307,7 +281,6 @@ const initSocketService = (httpServer) => {
     socket.on('disconnect', (reason) => handleDisconnect(socket, io, reason));
   });
 
-  logger.info('Socket.IO 服務初始化完成');
   return io;
 };
 
@@ -316,20 +289,15 @@ const sendNotificationToUser = (io, userId, notification) => {
   const socketId = getUserSocketId(userId);
   if (socketId) {
     io.to(socketId).emit('notification', createSuccessResponse(notification));
-    logger.debug('發送通知給用戶');
-  } else {
-    logger.debug('用戶不在線，無法發送通知');
   }
 };
 
 const sendMessageToRoom = (io, roomId, event, data) => {
   io.to(`room_${roomId}`).emit(event, createSuccessResponse(data));
-  logger.debug('發送訊息到房間', { roomId, event });
 };
 
 const broadcastToAll = (io, event, data) => {
   io.emit(event, createSuccessResponse(data));
-  logger.info('廣播訊息給所有用戶', { event });
 };
 
 export {

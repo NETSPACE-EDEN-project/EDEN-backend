@@ -2,7 +2,6 @@ import nodemailer from 'nodemailer'
 import crypto from 'crypto';
 import dotenv from 'dotenv';
 import { createErrorResponse, createSuccessResponse, ERROR_TYPES } from '../../utils/responseUtils.js'
-import { logger } from '../../utils/logger.js';
 
 dotenv.config();
 
@@ -56,11 +55,6 @@ const contentTemplate = (title, theme, buttonText, buttonUrl) => {
 const sendMailService = async (to, subject, content) => {
   try {
     if (!to || !subject || !content) {
-      logger.error('郵件發送參數不完整', { 
-        hasTo: !!to, 
-        hasSubject: !!subject, 
-        hasContent: !!content 
-      });
       return createErrorResponse(
         new Error('Missing required parameters'),
         ERROR_TYPES.AUTH.TOKEN.INVALID_INPUT
@@ -74,22 +68,12 @@ const sendMailService = async (to, subject, content) => {
       html: content
     };
 
-    logger.debug('準備發送郵件', { 
-      to: '[REDACTED]',
-      subject: subject,
-      contentLength: content?.length || 0
-    });
-
     const info = await transporter.sendMail(mailOptions);
-    
-    logger.info('郵件發送成功', { 
-      messageId: info.messageId,
-      to: '[REDACTED]'
-    });
+    console.log('[EMAIL] 發送成功:', info.messageId);
     
     return createSuccessResponse(null, '郵件發送成功');
   } catch (error) {
-    logger.error('郵件發送失敗', error);
+    console.error('[EMAIL] 發送失敗:', error);
     return createErrorResponse(
       error,
       ERROR_TYPES.AUTH.TOKEN.EMAIL_SEND_FAILED

@@ -3,7 +3,6 @@ import { shouldRefreshToken } from '../services/auth/tokenService.js';
 import { COOKIE_NAMES } from '../config/authConfig.js';
 import { setAuthCookies, clearAuthCookies, getFromCookies } from '../services/auth/cookieService.js';
 import { createErrorResponse, ERROR_TYPES } from '../utils/responseUtils.js';
-import { logger } from '../utils/logger.js';
 
 const requireAuth = async (req, res, next) => {
   try {
@@ -19,7 +18,6 @@ const requireAuth = async (req, res, next) => {
     );
 
     if (!result.success) {
-      logger.debug('認證失敗，清除 cookies');
       clearAuthCookies(res);
       return res.status(401).json(result);
     }
@@ -28,22 +26,21 @@ const requireAuth = async (req, res, next) => {
     req.isAuthenticated = true;
 
     if (result.data.refreshed) {
-      const cookieResult = setAuthCookies(res, result.data.userInfo, { 
-        rememberMe: true,
-        updateRefreshToken: false
-      });
+    const cookieResult = setAuthCookies(res, result.data.userInfo, { 
+      rememberMe: true,
+      updateRefreshToken: false
+    });
 
-      if (cookieResult.success) {
-        res.setHeader('X-Token-Refreshed', 'true');
-        logger.debug('Token 自動刷新成功');
-      } else {
-        logger.debug('Token 刷新後更新 cookies 失敗', { error: cookieResult.message });
-      }
+    if (cookieResult.success) {
+      res.setHeader('X-Token-Refreshed', 'true');
+    } else {
+      console.warn('Failed to update cookies after token refresh:', cookieResult.message);
     }
+  }
 
     next();
   } catch (error) {
-    logger.error('RequireAuth 中間件錯誤', error);
+    console.error('RequireAuth middleware error:', error);
     clearAuthCookies(res);
     return res.status(500).json(createErrorResponse(
       error,
@@ -78,9 +75,8 @@ const optionalAuth = async (req, res, next) => {
         
         if (cookieResult.success) {
           res.setHeader('X-Token-Refreshed', 'true');
-          logger.debug('可選認證中 Token 自動刷新成功');
         } else {
-          logger.debug('可選認證中 Token 刷新後更新 cookies 失敗', { error: cookieResult.message });
+          console.warn('Failed to update cookies after token refresh:', cookieResult.message);
         }
       }
     } else {
@@ -90,7 +86,7 @@ const optionalAuth = async (req, res, next) => {
 
     next();
   } catch (error) {
-    logger.error('OptionalAuth 中間件錯誤', error);
+    console.error('OptionalAuth middleware error:', error);
     req.user = null;
     req.isAuthenticated = false;
     next();
@@ -107,13 +103,12 @@ const requireRole = (requiredRole, options = {}) => {
     }
 
     if (!requiredRole) {
-      logger.error('requireRole 中間件調用時未指定必要角色');
+      console.warn('requireRole middleware called without specifying required role');
       return next();
     }
 
     const userRole = req.user.role;
     if (!userRole) {
-      logger.security('用戶無角色權限嘗試存取', req.user.id);
       return res.status(403).json(createErrorResponse(
         null,
         ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
@@ -123,10 +118,6 @@ const requireRole = (requiredRole, options = {}) => {
 
     if (options.strict) {
       if (userRole !== requiredRole) {
-        logger.security('用戶角色權限不足（嚴格模式）', req.user.id, {
-          required: requiredRole,
-          current: userRole
-        });
         return res.status(403).json(createErrorResponse(
           null,
           ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
@@ -149,7 +140,7 @@ const requireRole = (requiredRole, options = {}) => {
       const requiredLevel = roleHierarchy[requiredRole] || 0;
 
       if (requiredLevel === 0) {
-        logger.error('未知的必要角色', { role: requiredRole });
+        console.warn(`Unknown required role: ${requiredRole}`);
         return res.status(500).json(createErrorResponse(
           new Error(`Invalid role configuration: ${requiredRole}`),
           ERROR_TYPES.AUTH.TOKEN.VALIDATION_ERROR
@@ -157,12 +148,6 @@ const requireRole = (requiredRole, options = {}) => {
       }
 
       if (userLevel < requiredLevel) {
-        logger.security('用戶角色權限不足（階層模式）', req.user.id, {
-          requiredLevel,
-          userLevel,
-          requiredRole,
-          userRole
-        });
         return res.status(403).json(createErrorResponse(
           null,
           ERROR_TYPES.AUTH.USER.INSUFFICIENT_PERMISSIONS,
@@ -207,11 +192,6 @@ const requireOwnershipOrAdmin = (userIdParam = 'userId') => {
     if (userLevel >= 3) {
       return next();
     }
-
-    logger.security('用戶嘗試存取非擁有資源且權限不足', req.user.id, {
-      targetUserId: '[REDACTED]',
-      userRole
-    });
 
     return res.status(403).json(createErrorResponse(
       null,

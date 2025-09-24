@@ -1,6 +1,5 @@
 import jwt from 'jsonwebtoken';
 import { JWT_CONFIG } from '../config/authConfig.js';
-import { logger } from './logger.js';
 
 const buildDisplayInfo = (user) => ({
   id: user.id,
@@ -33,7 +32,6 @@ const buildTokenPayload = (user, type) => {
       type: 'refresh'
     };
   } else {
-    logger.error('無效的 token 類型', { type });
     throw new Error('Invalid token type. Must be "access" or "refresh"');
   }
 };
@@ -44,7 +42,7 @@ const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
 
     const decoded = jwt.verify(token, JWT_CONFIG.access.secret);
     if (!decoded) {
-      logger.debug('檢查 token 到期時間時，JWT 格式無效');
+      console.warn('Invalid JWT format when checking expiration');
       return true;
     }
 
@@ -53,18 +51,9 @@ const isTokenExpiringSoon = (token, thresholdMinutes = 5) => {
     const currentTime = Math.floor(Date.now() / 1000);
     const threshold = thresholdMinutes * 60;
 
-    const timeUntilExpiry = decoded.exp - currentTime;
-    const isExpiring = timeUntilExpiry < threshold;
-
-    logger.debug('Token 到期檢查', {
-      timeUntilExpiry,
-      thresholdMinutes,
-      isExpiring
-    });
-
-    return isExpiring;
+    return decoded.exp - currentTime < threshold;
   } catch (error) {
-    logger.debug('檢查 token 到期時間失敗', error);
+    console.error('Error checking token expiration:', error);
     return true;
   }
 };

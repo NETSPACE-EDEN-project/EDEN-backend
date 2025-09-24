@@ -8,7 +8,6 @@ import { corsOptions } from './src/config/cors.js';
 import { initSocketService } from './src/services/websocket/socketService.js';
 import { router as authRoutes } from './src/routes/authRoutes.js';
 import { router as chatRoutes } from './src/routes/chatRoutes.js';
-import { logger } from './src/utils/logger.js';
 
 dotenv.config();
 
@@ -18,11 +17,7 @@ const httpServer = createServer(app);
 app.use(express.json());
 app.use(cors(corsOptions));
 app.use(cookieParser(process.env.COOKIE_SECRET));
-
-logger.debug('服務器配置', {
-  hasCookieSecret: !!process.env.COOKIE_SECRET,
-  nodeEnv: process.env.NODE_ENV
-});
+console.log('Cookie secret exists:', !!process.env.COOKIE_SECRET);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
@@ -36,12 +31,12 @@ app.get('/health', (req, res) => {
 });
 
 const io = initSocketService(httpServer);
-logger.info('Socket.IO 服務初始化完成');
+console.log('Socket.io instance created:', !!io);
 
 app.set('socketIO', io);
 
 app.use((err, req, res, next) => {
-  logger.error('服務器錯誤', err);
+  console.error('Server error:', err);
   res.status(500).json({
     success: false,
     error: 'INTERNAL_SERVER_ERROR',
@@ -50,11 +45,6 @@ app.use((err, req, res, next) => {
 });
 
 app.use((req, res) => {
-  logger.debug('找不到 API 路徑', {
-    method: req.method,
-    path: req.path,
-    userAgent: req.get('User-Agent')?.substring(0, 50)
-  });
   res.status(404).json({
     success: false,
     error: 'ROUTE_NOT_FOUND',
@@ -64,9 +54,6 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  logger.info('服務器啟動成功', {
-    port: PORT,
-    nodeEnv: process.env.NODE_ENV,
-    hasWebSocket: true
-  });
+  console.log(`Server running on port ${PORT}`);
+  console.log(`WebSocket server is ready`);
 });
