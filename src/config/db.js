@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger.js';
 
 dotenv.config();
 
@@ -17,13 +18,16 @@ const pool = new Pool({
 });
 
 pool.on('error', (err) => {
-  console.error('Database connection error:', err);
+  logger.error('資料庫連線錯誤', err);
 });
 
 pool.on('connect', () => {
-  console.log('Database connected successfully');
+  logger.info('資料庫連線成功');
 });
 
-const db = drizzle(pool, { logger: true });
+// 在生產環境關閉 Drizzle 查詢日誌以避免敏感資料洩露
+const enableDbLogger = process.env.NODE_ENV !== 'production';
+
+const db = drizzle(pool, { logger: enableDbLogger });
 
 export { db };
