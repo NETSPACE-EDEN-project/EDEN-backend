@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger.js';
 
 dotenv.config();
 
@@ -6,7 +7,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const REFRESH_SECRET = process.env.REFRESH_SECRET;
 
 if (!JWT_SECRET || !REFRESH_SECRET) {
-  console.error('JWT_SECRET and REFRESH_SECRET must be set in the environment variables');
+  logger.error('JWT_SECRET 和 REFRESH_SECRET 必須在環境變數中設定');
   process.exit(1);
 }
 

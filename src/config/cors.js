@@ -1,4 +1,5 @@
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger.js';
 
 dotenv.config();
 
@@ -14,7 +15,10 @@ const allowedOrigins = [
 
 const corsOptions = {
   origin: (origin, callback) => {
-    console.log('CORS check - Origin:', origin);
+    logger.debug('CORS 檢查', { 
+      origin: origin || 'no-origin',
+      hasOrigin: !!origin 
+    });
     
     // 允許沒有 origin 的請求
     if (!origin) {
@@ -23,9 +27,13 @@ const corsOptions = {
 
     // 檢查允許的來源
     if (allowedOrigins.includes(origin)) {
+      logger.debug('CORS 允許', { origin });
       return callback(null, true);
     } else {
-      console.warn(`CORS rejected: ${origin}`);
+      logger.security('CORS 請求被拒絕', null, { 
+        rejectedOrigin: origin,
+        allowedOrigins: allowedOrigins.length 
+      });
       return callback(new Error(`CORS policy violation: ${origin} is not allowed`), false);
     }
   },
