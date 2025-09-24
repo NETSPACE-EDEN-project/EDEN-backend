@@ -12,7 +12,7 @@ const chatRoomsTable = pgTable('chat_rooms', {
 	maxMembers: integer('max_members').default(100),
   isPrivate: boolean('is_private').default(false),
   lastMessageAt: timestamp('last_message_at', { withTimezone: true }),
-  lastMessageId: integer('last_message_id').references(() => messagesTable.id, { onDelete: "set null" }),
+  lastMessageId: integer('last_message_id'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow()
 }, (table) => ({
