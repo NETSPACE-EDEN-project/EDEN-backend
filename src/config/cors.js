@@ -20,12 +20,10 @@ const corsOptions = {
       hasOrigin: !!origin 
     });
     
-    // 允許沒有 origin 的請求
     if (!origin) {
       return callback(null, true);
     }
 
-    // 檢查允許的來源
     if (allowedOrigins.includes(origin)) {
       logger.debug('CORS 允許', { origin });
       return callback(null, true);

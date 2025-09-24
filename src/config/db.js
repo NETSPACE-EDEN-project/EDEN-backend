@@ -21,7 +21,6 @@ pool.on('connect', () => {
   logger.info('資料庫連線成功');
 });
 
-// 在生產環境關閉 Drizzle 查詢日誌以避免敏感資料洩露
 const enableDbLogger = process.env.NODE_ENV !== 'production';
 
 const db = drizzle(pool, { logger: enableDbLogger });

@@ -1,3 +1,5 @@
+import { logger } from './logger.js';
+
 const createErrorResponse = (error, errorType = null, extra = null) => {
   let code = 'UnknownError';
   let message = '發生錯誤';
@@ -7,7 +9,14 @@ const createErrorResponse = (error, errorType = null, extra = null) => {
     message = errorType.message;
   }
 
-  console.error(error || message);
+  if (error) {
+    logger.error('創建錯誤回應', { 
+      code, 
+      message,
+      hasExtra: !!extra,
+      errorType: error.name || 'Error'
+    });
+  }
 
   return {
     success: false,
@@ -18,11 +27,18 @@ const createErrorResponse = (error, errorType = null, extra = null) => {
   };
 };
 
-const createSuccessResponse = (data = null, message = null) => ({
-  success: true,
-  ...(data && { data }),
-  ...(message && { message })
-});
+const createSuccessResponse = (data = null, message = null) => {
+  logger.debug('創建成功回應', { 
+    hasData: !!data,
+    hasMessage: !!message 
+  });
+
+  return {
+    success: true,
+    ...(data && { data }),
+    ...(message && { message })
+  };
+};
 
 const ERROR_TYPES = {
   AUTH: {
