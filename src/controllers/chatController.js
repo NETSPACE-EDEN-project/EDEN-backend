@@ -15,6 +15,16 @@ const getChatList = async (req, res) => {
         roomName: chatRoomsTable.roomName,
         roomType: chatRoomsTable.roomType,
         lastMessageAt: chatRoomsTable.lastMessageAt,
+        displayName: sql`
+          CASE 
+            WHEN ${chatRoomsTable.roomType} = 'private' THEN
+              (SELECT username FROM ${usersTable} u 
+                JOIN ${chatMembersTable} cm ON u.id = cm.user_id 
+                WHERE cm.room_id = ${chatRoomsTable.id} 
+                AND cm.user_id != ${userId})
+            ELSE ${chatRoomsTable.roomName}
+          END
+        `.as('displayName'),
         lastMessage: sql`
           (SELECT content FROM ${messagesTable} 
             WHERE room_id = ${chatRoomsTable.id} AND is_deleted = false 
