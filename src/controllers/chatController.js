@@ -93,7 +93,7 @@ const startPrivateChat = async (req, res) => {
     // 創建新的私人聊天室
     const newRoom = await db.transaction(async (tx) => {
       const [room] = await tx.insert(chatRoomsTable).values({
-        roomName: targetUser.username,
+        roomName: `private_${userId}_${targetUserId}`,
         roomType: 'private',
         createdBy: userId
       }).returning();
